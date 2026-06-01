@@ -1,0 +1,21 @@
+{
+  "name": "System · מעקב אימונים",
+  "short_name": "System",
+  "description": "מעקב אימוני כוח בסגנון Solo Leveling",
+  "lang": "he",
+  "dir": "rtl",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#050913",
+  "theme_color": "#050913",
+  "icons": [
+    {
+      "src": "./assets/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
