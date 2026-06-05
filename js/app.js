@@ -1,6 +1,6 @@
 // Entry point: home screen + workout-session controller.
 
-import { PLANS, totalSets, targetText, targetMax, restText } from './workouts.js';
+import { PLANS, totalSets, targetText, targetMax, targetMin, restText } from './workouts.js';
 import * as store from './state.js';
 import { getChallenge, nextChallengeId, reqText } from './challenges.js';
 import { startTimer, startStopwatch, fmtClock } from './timer.js';
@@ -9,6 +9,34 @@ import { fx, unlock, isSoundOn, isHapticOn, toggleSound, toggleHaptic } from './
 
 const app = document.getElementById('app');
 let state = store.load();
+
+// ---- Screen wake lock (keep the display awake during a workout) -------------
+
+let _wakeLock = null;
+let _wantWake = false;
+
+async function requestWakeLock() {
+  _wantWake = true;
+  try {
+    if (typeof navigator !== 'undefined' && navigator.wakeLock &&
+        typeof document !== 'undefined' && document.visibilityState === 'visible') {
+      _wakeLock = await navigator.wakeLock.request('screen');
+    }
+  } catch { /* denied or unsupported — non-fatal */ }
+}
+
+function releaseWakeLock() {
+  _wantWake = false;
+  try { if (_wakeLock && _wakeLock.release) _wakeLock.release(); } catch { /* ignore */ }
+  _wakeLock = null;
+}
+
+// The OS drops the lock when the tab is hidden; re-acquire it on return.
+if (typeof document !== 'undefined' && document.addEventListener) {
+  document.addEventListener('visibilitychange', () => {
+    if (_wantWake && document.visibilityState === 'visible') requestWakeLock();
+  });
+}
 
 // ---- Theme (light / dark) --------------------------------------------------
 
@@ -47,6 +75,7 @@ function toggleTheme() {
 
 function renderHome() {
   clear(app);
+  releaseWakeLock();
   const plan = PLANS[state.nextPlan];
   const s = store.stats(state);
 
@@ -92,11 +121,51 @@ function renderHome() {
       el('div', { class: 'next-sub', text: `${plan.blocks.length} תרגילים · ${totalSets(plan)} סטים` }),
     ]),
     el('button', { class: 'btn btn-primary btn-big', text: 'התחל ⚔', onClick: () => { unlock(); fx.start(); startWorkout(plan); } }),
+    el('button', { class: 'btn btn-ghost btn-wide', text: 'תצוגה מקדימה 👁', onClick: () => { fx.tap(); renderPreview(plan); } }),
   ]);
 
   app.appendChild(el('div', { class: 'view view-home' }, [topBar, statWin, goalWin, start]));
 
   if (challenge) maybeNotifyReady(challenge);
+}
+
+// ---- Workout preview (read-only, before starting) --------------------------
+
+function renderPreview(plan) {
+  clear(app);
+  releaseWakeLock();
+
+  const head = el('div', { class: 'session-head' }, [
+    el('div', { class: 'session-plan', text: plan.name }),
+    el('div', { class: 'session-progress', text: `${plan.blocks.length} תרגילים · ${totalSets(plan)} סטים` }),
+  ]);
+
+  const blocks = plan.blocks.map((block, bi) => {
+    const isSuper = block.kind === 'superset';
+    const exs = block.exercises.map((ex) =>
+      el('div', { class: 'pv-ex' }, [
+        el('span', { class: 'pv-ex-name', text: ex.name }),
+        el('span', { class: 'pv-ex-target', text: targetText(ex.target) }),
+      ])
+    );
+    const meta = `${block.sets} ${block.sets === 1 ? 'סט' : 'סטים'}${isSuper ? ' · סופרסט' : ''} · מנוחה ${restText(block.restSec)}`;
+    return el('div', { class: 'pv-block' }, [
+      el('div', { class: 'pv-block-head' }, [
+        el('span', { class: 'pv-block-no', text: String(bi + 1) }),
+        el('span', { class: 'pv-block-meta', text: meta }),
+      ]),
+      el('div', { class: 'pv-ex-list' }, exs),
+    ]);
+  });
+
+  const win = systemWindow('👁 תצוגה מקדימה', [el('div', { class: 'pv-list' }, blocks)]);
+
+  const actions = el('div', { class: 'sys-actions' }, [
+    el('button', { class: 'btn btn-primary', text: 'התחל ⚔', onClick: () => { unlock(); fx.start(); startWorkout(plan); } }),
+    el('button', { class: 'btn btn-ghost', text: 'חזרה', onClick: () => { fx.tap(); renderHome(); } }),
+  ]);
+
+  app.appendChild(el('div', { class: 'view view-preview' }, [head, win, actions]));
 }
 
 // ---- Rank-up challenge -----------------------------------------------------
@@ -165,6 +234,7 @@ function maybeNotifyReady(challenge) {
 
 function renderChallengePre(challenge) {
   clear(app);
+  requestWakeLock();
   const condNodes = challenge.conditions.map((c) =>
     el('div', { class: 'cond-row' }, [el('span', { class: 'cond-mark', text: '▸' }), el('span', { text: c })])
   );
@@ -281,15 +351,48 @@ function buildSteps(plan) {
 }
 
 function startWorkout(plan) {
+  requestWakeLock();
   const steps = buildSteps(plan);
   const session = {
     plan,
     steps,
     stepIndex: 0,
     startedAt: Date.now(),
-    results: [], // { exercise, target, actual, done }
+    results: [],   // { exercise, target, actual, done }
+    lastReps: {},  // exercise name -> last reps logged this session (pre-fill source)
   };
   renderStep(session);
+}
+
+// Last reps to pre-fill for an exercise: this session first, else real history.
+function lastReps(session, name) {
+  if (session.lastReps && session.lastReps[name] != null) return session.lastReps[name];
+  return store.lastLoggedReps(state.history, name);
+}
+
+// Per-exercise rep logging: quick min/max buttons + a custom field, pre-filled
+// with the last reps logged for this exercise. Returns { wrap, input }.
+function makeRepControl(ex, prefill) {
+  const t = ex.target;
+  const input = el('input', {
+    class: 'rep-input', type: 'number', min: '0', inputmode: 'numeric',
+    placeholder: targetText(t),
+    'aria-label': `חזרות בפועל — ${ex.name}`,
+  });
+  if (prefill != null) input.value = String(prefill);
+
+  const setVal = (v) => { fx.tap(); input.value = String(v); };
+  const minV = targetMin(t);
+  const maxV = targetMax(t);
+  const quick = [];
+  if (minV != null) quick.push(el('button', { class: 'rep-quick', type: 'button', text: `מינ' ${minV}`, onClick: () => setVal(minV) }));
+  if (maxV != null && maxV !== minV) quick.push(el('button', { class: 'rep-quick', type: 'button', text: `מקס' ${maxV}`, onClick: () => setVal(maxV) }));
+
+  const wrap = el('div', { class: 'rep-control' }, [
+    quick.length ? el('div', { class: 'rep-quick-row' }, quick) : null,
+    el('label', { class: 'rep-custom' }, [el('span', { class: 'rep-custom-label', text: 'חזרות' }), input]),
+  ]);
+  return { wrap, input };
 }
 
 // Count-up hold timer for time-based exercises (e.g. handstand 30–60s).
@@ -352,12 +455,16 @@ function renderStep(session) {
 
   const isSuper = block.kind === 'superset';
 
-  // Optional logging inputs (collapsed by default). Hold-timer auto-fills these for time targets.
-  const inputs = block.exercises.map((ex) =>
-    el('input', { class: 'rep-input', type: 'number', min: '0', inputmode: 'numeric',
-      placeholder: targetText(ex.target),
-      'aria-label': `${ex.target.type === 'time' ? 'שניות' : 'חזרות'} בפועל — ${ex.name}` })
-  );
+  // Per-exercise logging. Time targets keep the count-up hold timer (it auto-fills
+  // the seconds); everything else gets quick min/max buttons + a custom field,
+  // pre-filled with the last reps logged for that exercise.
+  const controls = block.exercises.map((ex) => {
+    if (ex.target.type === 'time') {
+      const input = el('input', { type: 'hidden' });
+      return { wrap: makeHoldTimer(ex.target, input), input };
+    }
+    return makeRepControl(ex, lastReps(session, ex.name));
+  });
 
   const exNodes = block.exercises.map((ex, i) =>
     el('div', { class: 'ex-row' }, [
@@ -365,31 +472,20 @@ function renderStep(session) {
       el('div', { class: 'ex-info' }, [
         el('div', { class: 'ex-name', text: ex.name }),
         el('div', { class: 'ex-target', text: targetText(ex.target) }),
-        ex.target.type === 'time' ? makeHoldTimer(ex.target, inputs[i]) : null,
+        controls[i].wrap,
       ]),
     ])
   );
-
-  const logBody = el('div', { class: 'log-body' },
-    block.exercises.map((ex, i) =>
-      el('label', { class: 'log-line' }, [el('span', { text: ex.name }), inputs[i]])
-    )
-  );
-  const logWrap = el('details', { class: 'rep-log' }, [
-    el('summary', { text: 'רישום חזרות (לא חובה)' }),
-    logBody,
-  ]);
 
   const title = isSuper ? `סופרסט · סט ${setNo} מתוך ${block.sets}` : `סט ${setNo} מתוך ${block.sets}`;
   const win = systemWindow(`⚔ ${title}`, [
     isSuper ? el('div', { class: 'super-hint', text: 'ברצף — בלי מנוחה בין התרגילים' }) : null,
     el('div', { class: 'ex-list' }, exNodes),
-    logWrap,
     el('div', { class: 'sys-actions' }, [
       el('button', { class: 'btn btn-primary', text: 'הושלם ✓',
-        onClick: () => { fx.complete(); completeStep(session, block, inputs, true); } }),
+        onClick: () => { fx.complete(); completeStep(session, block, controls, true); } }),
       el('button', { class: 'btn btn-ghost', text: 'דלג סט',
-        onClick: () => { fx.tap(); completeStep(session, block, inputs, false); } }),
+        onClick: () => { fx.tap(); completeStep(session, block, controls, false); } }),
     ]),
   ], { class: 'sys-dialog' });
 
@@ -403,10 +499,11 @@ function renderStep(session) {
   ]));
 }
 
-function completeStep(session, block, inputs, done) {
+function completeStep(session, block, controls, done) {
   block.exercises.forEach((ex, i) => {
-    const raw = inputs[i].value.trim();
+    const raw = (controls[i].input.value || '').trim();
     const actual = raw === '' ? null : Math.max(0, parseInt(raw, 10) || 0);
+    if (actual != null) session.lastReps[ex.name] = actual; // remember for next set / session
     session.results.push({ exercise: ex.name, target: targetText(ex.target), targetMax: targetMax(ex.target), actual, done });
   });
 
@@ -484,6 +581,7 @@ function finishWorkout(session) {
   // Flip to the other plan.
   state.nextPlan = session.plan.id === 'A' ? 'B' : 'A';
   store.save(state);
+  releaseWakeLock();
 
   showSummary(session, durationSec);
 }

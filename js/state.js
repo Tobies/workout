@@ -140,6 +140,18 @@ export function challengeReadiness(state, challenge) {
   return { items, readyCount, total: items.length, ready: readyCount === items.length, percent };
 }
 
+// Most recent actually-logged rep count for an exercise (newest set first),
+// so the session can pre-fill its input. null if it was never logged.
+export function lastLoggedReps(history, name) {
+  for (let i = history.length - 1; i >= 0; i--) {
+    const sets = history[i].sets || [];
+    for (let j = sets.length - 1; j >= 0; j--) {
+      if (sets[j].exercise === name && sets[j].actual != null) return sets[j].actual;
+    }
+  }
+  return null;
+}
+
 // Record a passed challenge and advance to the next (nextId from challenges.js).
 export function recordChallengePass(state, id, nextId) {
   if (!state.challengesPassed.includes(id)) state.challengesPassed.push(id);

@@ -210,6 +210,44 @@ body {
 }
 .rep-input:focus { outline: none; border-color: var(--cyan-strong); }
 
+/* ---- Per-exercise rep logging (quick buttons + custom field) ---- */
+
+.rep-control { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.rep-quick-row { display: flex; gap: 8px; }
+.rep-quick {
+  flex: 1; font-family: var(--mono); font-size: 15px; font-weight: 600;
+  padding: 9px 6px; color: var(--text); cursor: pointer;
+  background: var(--cell-bg); border: 1px solid var(--cyan-dim); border-radius: 4px;
+  transition: border-color .2s ease, background .2s ease, transform .08s ease;
+}
+.rep-quick:hover { border-color: var(--cyan-strong); background: var(--primary-bg); }
+.rep-quick:active { transform: scale(0.96); }
+.rep-custom {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  font-size: 13px; color: var(--text-dim);
+}
+.rep-custom-label { letter-spacing: .5px; }
+
+.btn-wide { width: 100%; }
+
+/* ---- Workout preview ---- */
+
+.pv-list { display: flex; flex-direction: column; gap: 10px; }
+.pv-block { background: var(--cell-bg); border: 1px solid var(--cyan-dim); border-radius: 4px; padding: 10px 12px; }
+.pv-block-head {
+  display: flex; align-items: center; gap: 8px;
+  padding-bottom: 6px; margin-bottom: 8px; border-bottom: 1px solid var(--cyan-dim);
+}
+.pv-block-no {
+  width: 22px; height: 22px; flex: none; display: grid; place-items: center;
+  border: 1px solid var(--cyan); border-radius: 4px; color: var(--cyan); font-size: 12px;
+}
+.pv-block-meta { font-size: 12px; color: var(--text-dim); }
+.pv-ex-list { display: flex; flex-direction: column; gap: 6px; }
+.pv-ex { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 14px; }
+.pv-ex-name { color: var(--text); }
+.pv-ex-target { color: var(--cyan); white-space: nowrap; }
+
 /* ---- Rest ---- */
 
 .view-rest { min-height: 60vh; justify-content: center; }

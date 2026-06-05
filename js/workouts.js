@@ -30,6 +30,19 @@ export function targetMax(t) {
   }
 }
 
+// Numeric "prescribed minimum" for a target — the floor of a rep prescription.
+// Used by the quick "min" log button. No meaningful floor → null (no button).
+export function targetMin(t) {
+  switch (t.type) {
+    case 'fixed': return t.value;
+    case 'range': return t.min;
+    case 'time': return t.min;
+    case 'maxCap': return null; // "up to N" — no prescribed floor
+    case 'max': return null;
+    default: return null;
+  }
+}
+
 // Render a rep target as Hebrew text.
 export function targetText(t) {
   switch (t.type) {

@@ -92,12 +92,14 @@ export const fx = {
     vibrate(12);
   },
   restEnd() {
+    // Clear two-tone bell "ding-dong" — the rest-over alert.
     play([
-      { f: 523, at: 0, d: 0.12 },
-      { f: 523, at: 0.14, d: 0.12 },
-      { f: 1046, at: 0.3, d: 0.28, g: 0.22 },
+      { f: 1318, at: 0,    d: 0.5,  type: 'sine', g: 0.34 }, // E6 ding
+      { f: 1046, at: 0.0,  d: 0.5,  type: 'sine', g: 0.16 }, // C6 harmony
+      { f: 880,  at: 0.42, d: 0.6,  type: 'sine', g: 0.34 }, // A5 dong
+      { f: 1318, at: 0.42, d: 0.6,  type: 'sine', g: 0.14 },
     ]);
-    vibrate([40, 60, 120]);
+    vibrate([120, 80, 160]);
   },
   levelUp() {
     play([
