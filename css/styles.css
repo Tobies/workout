@@ -134,6 +134,18 @@ body {
 .next-name { font-size: 28px; font-weight: 700; color: var(--cyan); margin: 4px 0; }
 .next-sub { font-size: 13px; color: var(--text-dim); }
 
+/* ---- Start-mode toggle (normal / circuit) ---- */
+.mode-toggle { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 6px 0 2px; }
+.mode-toggle-label { font-size: 12px; color: var(--text-dim); }
+.mode-opts { display: inline-flex; border: 1px solid var(--cyan-dim); border-radius: 6px; overflow: hidden; }
+.mode-opt {
+  font-family: var(--mono); font-size: 14px; padding: 8px 16px;
+  background: transparent; color: var(--text-dim); border: none; cursor: pointer;
+}
+.mode-opt + .mode-opt { border-inline-start: 1px solid var(--cyan-dim); }
+.mode-opt.active { background: var(--primary-bg); color: var(--text); }
+.mode-note { font-size: 12px; color: var(--cyan); text-align: center; margin-top: 4px; }
+
 /* ---- Buttons ---- */
 
 .btn {

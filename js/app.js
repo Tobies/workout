@@ -10,6 +10,10 @@ import { fx, unlock, isSoundOn, isHapticOn, toggleSound, toggleHaptic } from './
 const app = document.getElementById('app');
 let state = store.load();
 
+// Per-start workout mode chosen on the home screen (not persisted): 'normal'
+// (block-by-block) or 'circuit' (one set of each exercise per round).
+let startMode = 'normal';
+
 // ---- Screen wake lock (keep the display awake during a workout) -------------
 
 let _wakeLock = null;
@@ -114,14 +118,26 @@ function renderHome() {
     ? buildChallengeCard(challenge)
     : systemWindow('יעד', [el('div', { class: 'goal-done', text: 'עברת את כל האתגרים 🎉' })]);
 
+  const rounds = plan.blocks.reduce((m, b) => Math.max(m, b.sets), 0);
+  const modeOpt = (mode, label) => el('button', {
+    class: `mode-opt ${startMode === mode ? 'active' : ''}`, text: label,
+    onClick: () => { if (startMode !== mode) { fx.tap(); startMode = mode; renderHome(); } },
+  });
   const start = systemWindow('המשימה הבאה', [
     el('div', { class: 'next-plan' }, [
       el('div', { class: 'next-label', text: 'אימון הבא' }),
       el('div', { class: 'next-name', text: plan.name }),
       el('div', { class: 'next-sub', text: `${plan.blocks.length} תרגילים · ${totalSets(plan)} סטים` }),
     ]),
-    el('button', { class: 'btn btn-primary btn-big', text: 'התחל ⚔', onClick: () => { unlock(); fx.start(); startWorkout(plan); } }),
-    el('button', { class: 'btn btn-ghost btn-wide', text: 'תצוגה מקדימה 👁', onClick: () => { fx.tap(); renderPreview(plan); } }),
+    el('div', { class: 'mode-toggle' }, [
+      el('span', { class: 'mode-toggle-label', text: 'מצב' }),
+      el('div', { class: 'mode-opts' }, [modeOpt('normal', 'רגיל'), modeOpt('circuit', 'מעגלי 🔄')]),
+    ]),
+    startMode === 'circuit'
+      ? el('div', { class: 'mode-note', text: `סבב בין התרגילים · ${rounds} סבבים` })
+      : null,
+    el('button', { class: 'btn btn-primary btn-big', text: 'התחל ⚔', onClick: () => { unlock(); fx.start(); startWorkout(plan, startMode); } }),
+    el('button', { class: 'btn btn-ghost btn-wide', text: 'תצוגה מקדימה 👁', onClick: () => { fx.tap(); renderPreview(plan, startMode); } }),
   ]);
 
   app.appendChild(el('div', { class: 'view view-home' }, [topBar, statWin, goalWin, start]));
@@ -131,7 +147,7 @@ function renderHome() {
 
 // ---- Workout preview (read-only, before starting) --------------------------
 
-function renderPreview(plan) {
+function renderPreview(plan, mode = 'normal') {
   clear(app);
   releaseWakeLock();
 
@@ -158,10 +174,13 @@ function renderPreview(plan) {
     ]);
   });
 
-  const win = systemWindow('👁 תצוגה מקדימה', [el('div', { class: 'pv-list' }, blocks)]);
+  const banner = mode === 'circuit'
+    ? el('div', { class: 'mode-note', text: '🔄 מצב מעגלי — סבב בין התרגילים' })
+    : null;
+  const win = systemWindow('👁 תצוגה מקדימה', [banner, el('div', { class: 'pv-list' }, blocks)]);
 
   const actions = el('div', { class: 'sys-actions' }, [
-    el('button', { class: 'btn btn-primary', text: 'התחל ⚔', onClick: () => { unlock(); fx.start(); startWorkout(plan); } }),
+    el('button', { class: 'btn btn-primary', text: 'התחל ⚔', onClick: () => { unlock(); fx.start(); startWorkout(plan, mode); } }),
     el('button', { class: 'btn btn-ghost', text: 'חזרה', onClick: () => { fx.tap(); renderHome(); } }),
   ]);
 
@@ -339,22 +358,37 @@ function statCell(label, value) {
 
 // ---- Workout session -------------------------------------------------------
 
-function buildSteps(plan) {
+function buildSteps(plan, mode = 'normal') {
   // Flatten blocks into per-set steps.
+  //   normal:  all sets of a block before moving to the next block.
+  //   circuit: one set of each block per round, repeated; a block leaves the
+  //            rotation once its prescribed sets are done. Same total sets —
+  //            only the order changes, so stats/history/readiness are unaffected.
   const steps = [];
-  plan.blocks.forEach((block, bi) => {
-    for (let setNo = 1; setNo <= block.sets; setNo++) {
-      steps.push({ block, blockIndex: bi, setNo });
+  if (mode === 'circuit') {
+    const rounds = plan.blocks.reduce((m, b) => Math.max(m, b.sets), 0);
+    for (let round = 1; round <= rounds; round++) {
+      plan.blocks.forEach((block, bi) => {
+        if (round <= block.sets) steps.push({ block, blockIndex: bi, setNo: round });
+      });
     }
-  });
+  } else {
+    plan.blocks.forEach((block, bi) => {
+      for (let setNo = 1; setNo <= block.sets; setNo++) {
+        steps.push({ block, blockIndex: bi, setNo });
+      }
+    });
+  }
   return steps;
 }
 
-function startWorkout(plan) {
+function startWorkout(plan, mode = 'normal') {
   requestWakeLock();
-  const steps = buildSteps(plan);
+  const steps = buildSteps(plan, mode);
   const session = {
     plan,
+    mode,
+    rounds: plan.blocks.reduce((m, b) => Math.max(m, b.sets), 0),
     steps,
     stepIndex: 0,
     startedAt: Date.now(),
@@ -449,7 +483,8 @@ function renderStep(session) {
 
   const head = el('div', { class: 'session-head' }, [
     el('div', { class: 'session-plan', text: session.plan.name }),
-    el('div', { class: 'session-progress', text: `${stepNum} / ${stepTotal}` }),
+    el('div', { class: 'session-progress', text:
+      session.mode === 'circuit' ? `סבב ${setNo}/${session.rounds} · ${stepNum}/${stepTotal}` : `${stepNum} / ${stepTotal}` }),
   ]);
   const progFill = el('div', { class: 'prog-fill', style: `width:${(stepNum - 1) / stepTotal * 100}%` });
 
