@@ -1,6 +1,6 @@
 // Entry point: home screen + workout-session controller.
 
-import { PLANS, totalSets, targetText, targetMax, targetMin, restText } from './workouts.js';
+import { PLANS, totalSets, targetText, targetMax, targetMin, restText, scaledPlan } from './workouts.js';
 import * as store from './state.js';
 import { getChallenge, nextChallengeId, reqText } from './challenges.js';
 import { startTimer, startStopwatch, fmtClock } from './timer.js';
@@ -75,6 +75,58 @@ function toggleTheme() {
   return next;
 }
 
+// ---- Settings (kept off the main UI; opened from the ⚙ button) -------------
+
+// One tappable settings row: label + description + current-mode readout. Tapping
+// advances the setting and updates the readout in place (no re-render flicker).
+function settingRow(cfg) {
+  const stateEl = el('span', { class: 'set-state', text: cfg.value() });
+  const row = el('button', { class: 'set-row', 'aria-label': cfg.label }, [
+    el('div', { class: 'set-top' }, [
+      el('span', { class: 'set-label', text: cfg.icon ? `${cfg.icon} ${cfg.label}` : cfg.label }),
+      stateEl,
+    ]),
+    el('div', { class: 'set-desc', text: cfg.desc }),
+  ]);
+  const sync = () => { stateEl.textContent = cfg.value(); if (cfg.off) row.classList.toggle('off', cfg.off()); };
+  row.addEventListener('click', () => { fx.tap(); cfg.cycle(); sync(); });
+  sync();
+  return row;
+}
+
+function openSettings() {
+  const rows = [
+    settingRow({
+      icon: '🎨', label: 'ערכת נושא', desc: 'מראה האפליקציה — כהה או בהיר.',
+      value: () => (currentTheme() === 'light' ? 'בהיר ☀️' : 'כהה 🌙'),
+      cycle: () => toggleTheme(),
+    }),
+    settingRow({
+      icon: '🔊', label: 'צליל', desc: 'צלילי משוב בלחיצות, בספירת המנוחה ובסיום אימון.',
+      value: () => (isSoundOn() ? 'פעיל 🔊' : 'כבוי 🔇'),
+      off: () => !isSoundOn(), cycle: () => toggleSound(),
+    }),
+    settingRow({
+      icon: '📳', label: 'רטט', desc: 'רטט משוב במכשירים תומכים (בעיקר טלפון).',
+      value: () => (isHapticOn() ? 'פעיל' : 'כבוי'),
+      off: () => !isHapticOn(), cycle: () => toggleHaptic(),
+    }),
+    settingRow({
+      icon: '🎚️', label: 'תצוגת עצימות', desc: 'איך בקרת העצימות (האחוז וכפתורי ה-±) מוצגת במסך הבית.',
+      value: () => (state.rampDisplay === 'full' ? 'מלא · כולל +/−' : state.rampDisplay === 'readonly' ? 'תצוגה בלבד' : 'מוסתר'),
+      cycle: () => { state.rampDisplay = store.nextRampDisplay(state.rampDisplay); store.save(state); },
+    }),
+  ];
+  const dlg = systemDialog({
+    title: 'הגדרות',
+    bodyNodes: [
+      el('div', { class: 'set-hint', text: 'הקש על הגדרה כדי להחליף מצב' }),
+      el('div', { class: 'set-list' }, rows),
+    ],
+    actions: [{ label: 'סגור', kind: 'primary', onClick: () => { fx.tap(); dlg.close(); renderHome(); } }],
+  });
+}
+
 // ---- Home screen -----------------------------------------------------------
 
 function renderHome() {
@@ -85,19 +137,8 @@ function renderHome() {
 
   const topBar = el('div', { class: 'top-bar' }, [
     el('button', {
-      class: 'icon-btn', 'aria-label': 'מצב תצוגה',
-      text: currentTheme() === 'light' ? '☀️' : '🌙',
-      onClick: (e) => { fx.tap(); const t = toggleTheme(); e.currentTarget.textContent = t === 'light' ? '☀️' : '🌙'; },
-    }),
-    el('button', {
-      class: `icon-btn ${isSoundOn() ? '' : 'off'}`, 'aria-label': 'צליל',
-      text: isSoundOn() ? '🔊' : '🔇',
-      onClick: (e) => { const on = toggleSound(); e.currentTarget.textContent = on ? '🔊' : '🔇'; e.currentTarget.classList.toggle('off', !on); },
-    }),
-    el('button', {
-      class: `icon-btn ${isHapticOn() ? '' : 'off'}`, 'aria-label': 'רטט',
-      text: '📳',
-      onClick: (e) => { const on = toggleHaptic(); e.currentTarget.classList.toggle('off', !on); },
+      class: 'icon-btn', 'aria-label': 'הגדרות', text: '⚙',
+      onClick: () => { fx.tap(); openSettings(); },
     }),
   ]);
 
@@ -119,10 +160,32 @@ function renderHome() {
     : systemWindow('יעד', [el('div', { class: 'goal-done', text: 'עברת את כל האתגרים 🎉' })]);
 
   const rounds = plan.blocks.reduce((m, b) => Math.max(m, b.sets), 0);
+  const scaled = scaledPlan(plan, state.rampPercent); // single choke point for ramp-up scaling
   const modeOpt = (mode, label) => el('button', {
     class: `mode-opt ${startMode === mode ? 'active' : ''}`, text: label,
     onClick: () => { if (startMode !== mode) { fx.tap(); startMode = mode; renderHome(); } },
   });
+
+  // Intensity (ramp-up) widget — its display mode is cycled by the top-bar icon.
+  const pctText = state.rampPercent >= 100 ? 'מלא' : `${state.rampPercent}%`;
+  const nudgeRamp = (delta) => { fx.tap(); state.rampPercent = store.clampRamp(state.rampPercent + delta); store.save(state); renderHome(); };
+  let rampWidget = null;
+  if (state.rampDisplay === 'readonly') {
+    rampWidget = el('div', { class: 'ramp-row' }, [
+      el('span', { class: 'ramp-label', text: 'עצימות' }),
+      el('span', { class: 'ramp-val', text: pctText }),
+    ]);
+  } else if (state.rampDisplay === 'full') {
+    rampWidget = el('div', { class: 'ramp-row' }, [
+      el('span', { class: 'ramp-label', text: 'עצימות' }),
+      el('div', { class: 'ramp-ctl' }, [
+        el('button', { class: 'ramp-btn', 'aria-label': 'הפחת עצימות', text: '−', onClick: () => nudgeRamp(-store.RAMP_STEP) }),
+        el('span', { class: 'ramp-val', text: pctText }),
+        el('button', { class: 'ramp-btn', 'aria-label': 'הגבר עצימות', text: '+', onClick: () => nudgeRamp(store.RAMP_STEP) }),
+      ]),
+    ]);
+  }
+
   const start = systemWindow('המשימה הבאה', [
     el('div', { class: 'next-plan' }, [
       el('div', { class: 'next-label', text: 'אימון הבא' }),
@@ -136,8 +199,9 @@ function renderHome() {
     startMode === 'circuit'
       ? el('div', { class: 'mode-note', text: `סבב בין התרגילים · ${rounds} סבבים` })
       : null,
-    el('button', { class: 'btn btn-primary btn-big', text: 'התחל ⚔', onClick: () => { unlock(); fx.start(); startWorkout(plan, startMode); } }),
-    el('button', { class: 'btn btn-ghost btn-wide', text: 'תצוגה מקדימה 👁', onClick: () => { fx.tap(); renderPreview(plan, startMode); } }),
+    rampWidget,
+    el('button', { class: 'btn btn-primary btn-big', text: 'התחל ⚔', onClick: () => { unlock(); fx.start(); startWorkout(scaled, startMode); } }),
+    el('button', { class: 'btn btn-ghost btn-wide', text: 'תצוגה מקדימה 👁', onClick: () => { fx.tap(); renderPreview(scaled, startMode); } }),
   ]);
 
   app.appendChild(el('div', { class: 'view view-home' }, [topBar, statWin, goalWin, start]));
@@ -630,13 +694,24 @@ function showSummary(session, durationSec) {
       statCell('סטים', doneCount),
       statCell('זמן', store.fmtDuration(durationSec)),
     ]),
+    el('div', { class: 'summary-q', text: 'היה מאתגר מספיק?' }),
   ];
+
+  // Post-workout calibration: nudge the ramp-up intensity for next time.
+  const adjust = (delta) => {
+    if (delta) { state.rampPercent = store.clampRamp(state.rampPercent + delta); store.save(state); }
+    fx.tap();
+    dlg.close();
+    renderHome();
+  };
 
   const dlg = systemDialog({
     title: 'אימון הושלם',
     bodyNodes: body,
     actions: [
-      { label: 'חזרה', kind: 'primary', onClick: () => { fx.tap(); dlg.close(); renderHome(); } },
+      { label: 'קל מדי ⬆', kind: 'ghost', onClick: () => adjust(store.RAMP_STEP) },
+      { label: 'בול 👌', kind: 'primary', onClick: () => adjust(0) },
+      { label: 'קשה מדי ⬇', kind: 'ghost', onClick: () => adjust(-store.RAMP_STEP) },
     ],
   });
 }

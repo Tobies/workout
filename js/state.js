@@ -9,12 +9,21 @@ export const WEEKLY_GOAL = 3;
 export const CHALLENGE_STREAK = 2;  // sessions an exercise must clear the bar to count as ready
 const DAY = 24 * 60 * 60 * 1000;
 
+// Ramp-up intensity: scales the prescribed plan down so each session stays clean.
+// 100 = the full coach's plan (no scaling). Adjusted by the post-workout prompt.
+export const RAMP_MIN = 50, RAMP_MAX = 100, RAMP_STEP = 5;
+export const clampRamp = (p) => Math.min(RAMP_MAX, Math.max(RAMP_MIN, Math.round(p)));
+export const RAMP_DISPLAYS = ['full', 'readonly', 'hidden'];
+export const nextRampDisplay = (d) => RAMP_DISPLAYS[(RAMP_DISPLAYS.indexOf(d) + 1) % RAMP_DISPLAYS.length];
+
 const DEFAULT_STATE = () => ({
   nextPlan: 'A',
   history: [], // { dateISO, plan, durationSec, sets:[{ exercise, target, targetMax|null, actual|null, done }] }
   currentChallenge: '2.5',
   challengesPassed: [],
   challengeNotified: false,
+  rampPercent: 75,      // intensity %, [50,100]; 100 = full plan, <100 scales reps/holds down
+  rampDisplay: 'full',  // home intensity widget: 'full' | 'readonly' | 'hidden'
 });
 
 export function load() {

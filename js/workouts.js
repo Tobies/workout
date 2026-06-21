@@ -55,6 +55,38 @@ export function targetText(t) {
   }
 }
 
+// ---- Ramp-up scaling -------------------------------------------------------
+// Scale one rep/time target by pct (e.g. 75). Returns a NEW target (source data
+// is never mutated); floor 1. AMRAP: maxCap's cap scales; pure max() has no
+// number, so it's returned unchanged.
+export function scaleTarget(t, pct) {
+  const r = (n) => Math.max(1, Math.round((n * pct) / 100));
+  switch (t.type) {
+    case 'fixed': return fixed(r(t.value));
+    case 'range': {
+      const lo = r(t.min), hi = r(t.max);
+      return lo === hi ? fixed(lo) : range(lo, hi); // collapse "2–2" → "2"
+    }
+    case 'time': return time(r(t.min), t.max == null ? null : r(t.max));
+    case 'maxCap': return maxCap(r(t.cap));
+    default: return t; // max()
+  }
+}
+
+// A copy of a plan with every WORK-block target scaled. The warmup (block 0) is
+// left untouched. pct >= 100 (or falsy) → the original plan, no scaling.
+export function scaledPlan(plan, pct) {
+  if (!pct || pct >= 100) return plan;
+  return {
+    ...plan,
+    blocks: plan.blocks.map((b, i) =>
+      i === 0
+        ? b
+        : { ...b, exercises: b.exercises.map((ex) => ({ ...ex, target: scaleTarget(ex.target, pct) })) }
+    ),
+  };
+}
+
 // Human-readable rest text.
 export function restText(sec) {
   if (sec === 60) return 'דקה';

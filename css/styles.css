@@ -146,6 +146,39 @@ body {
 .mode-opt.active { background: var(--primary-bg); color: var(--text); }
 .mode-note { font-size: 12px; color: var(--cyan); text-align: center; margin-top: 4px; }
 
+/* ---- Ramp-up intensity ---- */
+.ramp-row { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 6px 0 2px; }
+.ramp-label { font-size: 12px; color: var(--text-dim); }
+.ramp-ctl { display: inline-flex; align-items: center; gap: 10px; }
+.ramp-val { font-family: var(--mono); font-size: 14px; color: var(--text); min-width: 44px; text-align: center; }
+.ramp-btn {
+  font-family: var(--mono); font-size: 16px; width: 32px; height: 32px;
+  display: grid; place-items: center;
+  background: var(--primary-bg); color: var(--text);
+  border: 1px solid var(--cyan-dim); border-radius: 6px; cursor: pointer;
+  transition: transform .08s ease, border-color .2s ease;
+}
+.ramp-btn:hover { border-color: var(--cyan-strong); }
+.ramp-btn:active { transform: scale(0.94); }
+.summary-q { text-align: center; color: var(--text-dim); font-size: 13px; margin-top: 10px; }
+
+/* ---- Settings sheet ---- */
+.set-hint { font-size: 12px; color: var(--text-dim); text-align: center; margin-bottom: 10px; }
+.set-list { display: flex; flex-direction: column; gap: 8px; text-align: start; }
+.set-row {
+  display: block; width: 100%; text-align: start; font-family: var(--mono);
+  background: var(--cell-bg); color: var(--text);
+  border: 1px solid var(--cyan-dim); border-radius: 6px; padding: 10px 12px; cursor: pointer;
+  transition: border-color .2s ease, transform .08s ease, opacity .2s ease;
+}
+.set-row:hover { border-color: var(--cyan-strong); }
+.set-row:active { transform: scale(0.99); }
+.set-row.off { opacity: 0.5; }
+.set-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.set-label { font-size: 14px; color: var(--text); }
+.set-state { font-size: 13px; color: var(--cyan); white-space: nowrap; }
+.set-desc { font-size: 12px; color: var(--text-dim); margin-top: 4px; line-height: 1.4; }
+
 /* ---- Buttons ---- */
 
 .btn {
