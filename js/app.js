@@ -1,10 +1,11 @@
 // Entry point: home screen + workout-session controller.
 
-import { PLANS, totalSets, targetText, targetMax, targetMin, restText, scaledPlan } from './workouts.js';
+import { PLANS, totalSets, targetText, targetMax, targetMin, restText, scaledPlan, videoFor } from './workouts.js';
 import * as store from './state.js';
 import { getChallenge, nextChallengeId, reqText } from './challenges.js';
 import { startTimer, startStopwatch, fmtClock } from './timer.js';
 import { el, clear, systemWindow, systemDialog, notify } from './system.js';
+import { ICONS } from './icons.js';
 import { fx, unlock, isSoundOn, isHapticOn, toggleSound, toggleHaptic } from './feedback.js';
 
 const app = document.getElementById('app');
@@ -65,7 +66,7 @@ function applyTheme(t) {
   const root = document.documentElement;
   if (root && root.setAttribute) root.setAttribute('data-theme', t);
   const meta = document.querySelector && document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', t === 'light' ? '#eef2f6' : '#0b0f17');
+  if (meta) meta.setAttribute('content', t === 'light' ? '#faf7f0' : '#211e1a');
 }
 
 function toggleTheme() {
@@ -94,6 +95,30 @@ function settingRow(cfg) {
   return row;
 }
 
+// Intensity (ramp-up) stepper row for the settings sheet: −/+ adjust
+// `rampPercent` in place (also auto-nudged by the post-workout prompt).
+function intensityRow() {
+  const pctText = () => (state.rampPercent >= 100 ? 'מלא' : `${state.rampPercent}%`);
+  const val = el('span', { class: 'ramp-val', text: pctText() });
+  const nudge = (delta) => {
+    fx.tap();
+    state.rampPercent = store.clampRamp(state.rampPercent + delta);
+    store.save(state);
+    val.textContent = pctText();
+  };
+  return el('div', { class: 'set-row' }, [
+    el('div', { class: 'set-top' }, [
+      el('span', { class: 'set-label', text: '🎚️ עצימות' }),
+      el('div', { class: 'ramp-ctl' }, [
+        el('button', { class: 'ramp-btn', 'aria-label': 'הפחת עצימות', text: '−', onClick: () => nudge(-store.RAMP_STEP) }),
+        val,
+        el('button', { class: 'ramp-btn', 'aria-label': 'הגבר עצימות', text: '+', onClick: () => nudge(store.RAMP_STEP) }),
+      ]),
+    ]),
+    el('div', { class: 'set-desc', text: 'כמה מהתוכנית המלאה לבצע. מתכוונן גם אוטומטית לפי המשוב בסוף כל אימון.' }),
+  ]);
+}
+
 function openSettings() {
   const rows = [
     settingRow({
@@ -111,11 +136,7 @@ function openSettings() {
       value: () => (isHapticOn() ? 'פעיל' : 'כבוי'),
       off: () => !isHapticOn(), cycle: () => toggleHaptic(),
     }),
-    settingRow({
-      icon: '🎚️', label: 'תצוגת עצימות', desc: 'איך בקרת העצימות (האחוז וכפתורי ה-±) מוצגת במסך הבית.',
-      value: () => (state.rampDisplay === 'full' ? 'מלא · כולל +/−' : state.rampDisplay === 'readonly' ? 'תצוגה בלבד' : 'מוסתר'),
-      cycle: () => { state.rampDisplay = store.nextRampDisplay(state.rampDisplay); store.save(state); },
-    }),
+    intensityRow(),
   ];
   const dlg = systemDialog({
     title: 'הגדרות',
@@ -134,79 +155,81 @@ function renderHome() {
   releaseWakeLock();
   const plan = PLANS[state.nextPlan];
   const s = store.stats(state);
+  const challenge = getChallenge(state.currentChallenge);
+  const readiness = challenge ? store.challengeReadiness(state, challenge) : null;
+  const rounds = plan.blocks.reduce((m, b) => Math.max(m, b.sets), 0);
+  const scaled = scaledPlan(plan, state.rampPercent); // single choke point for ramp-up scaling
 
-  const topBar = el('div', { class: 'top-bar' }, [
+  // Top bar. RTL: first child sits on the physical RIGHT → workouts chip
+  // top-right, settings top-left.
+  const topBar = el('div', { class: 'home-top' }, [
     el('button', {
-      class: 'icon-btn', 'aria-label': 'הגדרות', text: '⚙',
+      class: 'icon-round stat-chip', 'aria-label': 'נתונים',
+      onClick: () => { fx.tap(); openStats(); },
+    }, [
+      el('span', { class: 'chip-icon', html: ICONS.dumbbell }),
+      el('span', { class: 'chip-num', text: String(s.totalWorkouts) }),
+    ]),
+    el('button', {
+      class: 'icon-round', 'aria-label': 'הגדרות', html: ICONS.gear,
       onClick: () => { fx.tap(); openSettings(); },
     }),
   ]);
 
-  const statWin = systemWindow('נתונים', [
-    el('div', { class: 'stage-line', text: 'שלב בסיס · רמה 2.5' }),
-    el('div', { class: 'stat-grid' }, [
-      statCell('אימונים', s.totalWorkouts),
-      statCell('זמן אימון', store.fmtDuration(s.totalTimeSec)),
-      statCell('רצף נוכחי', `${s.streak}`),
-      statCell('רצף שיא', `${s.longestStreak}`),
-      statCell('סטים שהושלמו', s.totalSets),
-      statCell('השבוע', `${s.weekCount} / ${store.WEEKLY_GOAL}`),
-    ]),
+  // Hero: the next workout.
+  const hero = el('div', { class: 'hero' }, [
+    el('div', { class: 'hero-label', text: 'האימון הבא' }),
+    el('div', { class: 'hero-name', text: plan.name }),
+    el('div', { class: 'hero-sub', text: `${plan.blocks.length} תרגילים · ${totalSets(plan)} סטים` }),
+    startMode === 'circuit'
+      ? el('div', { class: 'mode-note', text: `🔄 מצב מעגלי · ${rounds} סבבים` })
+      : null,
   ]);
 
-  const challenge = getChallenge(state.currentChallenge);
-  const goalWin = challenge
-    ? buildChallengeCard(challenge)
-    : systemWindow('יעד', [el('div', { class: 'goal-done', text: 'עברת את כל האתגרים 🎉' })]);
-
-  const rounds = plan.blocks.reduce((m, b) => Math.max(m, b.sets), 0);
-  const scaled = scaledPlan(plan, state.rampPercent); // single choke point for ramp-up scaling
-  const modeOpt = (mode, label) => el('button', {
-    class: `mode-opt ${startMode === mode ? 'active' : ''}`, text: label,
-    onClick: () => { if (startMode !== mode) { fx.tap(); startMode = mode; renderHome(); } },
+  const startBtn = el('button', {
+    class: 'btn btn-start', text: 'התחל אימון',
+    onClick: () => { unlock(); fx.start(); startWorkout(scaled, startMode); },
   });
 
-  // Intensity (ramp-up) widget — its display mode is cycled by the top-bar icon.
-  const pctText = state.rampPercent >= 100 ? 'מלא' : `${state.rampPercent}%`;
-  const nudgeRamp = (delta) => { fx.tap(); state.rampPercent = store.clampRamp(state.rampPercent + delta); store.save(state); renderHome(); };
-  let rampWidget = null;
-  if (state.rampDisplay === 'readonly') {
-    rampWidget = el('div', { class: 'ramp-row' }, [
-      el('span', { class: 'ramp-label', text: 'עצימות' }),
-      el('span', { class: 'ramp-val', text: pctText }),
-    ]);
-  } else if (state.rampDisplay === 'full') {
-    rampWidget = el('div', { class: 'ramp-row' }, [
-      el('span', { class: 'ramp-label', text: 'עצימות' }),
-      el('div', { class: 'ramp-ctl' }, [
-        el('button', { class: 'ramp-btn', 'aria-label': 'הפחת עצימות', text: '−', onClick: () => nudgeRamp(-store.RAMP_STEP) }),
-        el('span', { class: 'ramp-val', text: pctText }),
-        el('button', { class: 'ramp-btn', 'aria-label': 'הגבר עצימות', text: '+', onClick: () => nudgeRamp(store.RAMP_STEP) }),
-      ]),
-    ]);
-  }
-
-  const start = systemWindow('המשימה הבאה', [
-    el('div', { class: 'next-plan' }, [
-      el('div', { class: 'next-label', text: 'אימון הבא' }),
-      el('div', { class: 'next-name', text: plan.name }),
-      el('div', { class: 'next-sub', text: `${plan.blocks.length} תרגילים · ${totalSets(plan)} סטים` }),
-    ]),
-    el('div', { class: 'mode-toggle' }, [
-      el('span', { class: 'mode-toggle-label', text: 'מצב' }),
-      el('div', { class: 'mode-opts' }, [modeOpt('normal', 'רגיל'), modeOpt('circuit', 'מעגלי 🔄')]),
-    ]),
-    startMode === 'circuit'
-      ? el('div', { class: 'mode-note', text: `סבב בין התרגילים · ${rounds} סבבים` })
-      : null,
-    rampWidget,
-    el('button', { class: 'btn btn-primary btn-big', text: 'התחל ⚔', onClick: () => { unlock(); fx.start(); startWorkout(scaled, startMode); } }),
-    el('button', { class: 'btn btn-ghost btn-wide', text: 'תצוגה מקדימה 👁', onClick: () => { fx.tap(); renderPreview(scaled, startMode); } }),
+  // Bottom action row: preview · mode toggle · challenge.
+  const actionBtn = (icon, label, onClick, aria) => el('div', { class: 'action-item' }, [
+    el('button', { class: 'action-btn', 'aria-label': aria || label, html: icon, onClick }),
+    el('div', { class: 'action-label', text: label }),
+  ]);
+  const actions = el('div', { class: 'action-row' }, [
+    actionBtn(ICONS.spyglass, 'תצוגה מקדימה', () => { fx.tap(); renderPreview(scaled, startMode); }),
+    actionBtn(
+      startMode === 'circuit' ? ICONS.shoe : ICONS.muscle,
+      startMode === 'circuit' ? 'מצב מעגלי' : 'מצב רגיל',
+      () => { fx.tap(); startMode = startMode === 'circuit' ? 'normal' : 'circuit'; renderHome(); },
+      'החלף מצב אימון'
+    ),
+    actionBtn(ICONS.swords, readiness ? `אתגר · ${readiness.percent}%` : 'אתגר', () => { fx.tap(); openChallenge(); }),
   ]);
 
-  app.appendChild(el('div', { class: 'view view-home' }, [topBar, statWin, goalWin, start]));
+  app.appendChild(el('div', { class: 'view view-home' }, [topBar, hero, startBtn, actions]));
 
   if (challenge) maybeNotifyReady(challenge);
+}
+
+// Stats dialog (opened from the top-right workouts chip).
+function openStats() {
+  const s = store.stats(state);
+  const dlg = systemDialog({
+    title: 'נתונים',
+    bodyNodes: [
+      el('div', { class: 'stage-line', text: 'שלב בסיס · רמה 3' }),
+      el('div', { class: 'stat-grid' }, [
+        statCell('אימונים', s.totalWorkouts),
+        statCell('זמן אימון', store.fmtDuration(s.totalTimeSec)),
+        statCell('רצף נוכחי', `${s.streak}`),
+        statCell('רצף שיא', `${s.longestStreak}`),
+        statCell('סטים שהושלמו', s.totalSets),
+        statCell('השבוע', `${s.weekCount} / ${store.WEEKLY_GOAL}`),
+      ]),
+    ],
+    actions: [{ label: 'סגור', kind: 'primary', onClick: () => { fx.tap(); dlg.close(); } }],
+  });
 }
 
 // ---- Workout preview (read-only, before starting) --------------------------
@@ -224,11 +247,12 @@ function renderPreview(plan, mode = 'normal') {
     const isSuper = block.kind === 'superset';
     const exs = block.exercises.map((ex) =>
       el('div', { class: 'pv-ex' }, [
-        el('span', { class: 'pv-ex-name', text: ex.name }),
+        el('span', { class: 'pv-ex-name' }, [ex.name, ' ', videoLink(ex.name, 'video-link pv-video')]),
         el('span', { class: 'pv-ex-target', text: targetText(ex.target) }),
       ])
     );
-    const meta = `${block.sets} ${block.sets === 1 ? 'סט' : 'סטים'}${isSuper ? ' · סופרסט' : ''} · מנוחה ${restText(block.restSec)}`;
+    const meta = `${block.sets} ${block.sets === 1 ? 'סט' : 'סטים'}${isSuper ? ' · סופרסט' : ''}` +
+      (block.restSec ? ` · מנוחה ${restText(block.restSec)}` : '');
     return el('div', { class: 'pv-block' }, [
       el('div', { class: 'pv-block-head' }, [
         el('span', { class: 'pv-block-no', text: String(bi + 1) }),
@@ -253,7 +277,18 @@ function renderPreview(plan, mode = 'normal') {
 
 // ---- Rank-up challenge -----------------------------------------------------
 
-function buildChallengeCard(challenge) {
+// Challenge readiness dialog (opened from the home ⚔ action button).
+function openChallenge() {
+  const challenge = getChallenge(state.currentChallenge);
+  if (!challenge) {
+    const d = systemDialog({
+      title: 'אתגר',
+      bodyNodes: [el('div', { class: 'goal-done', text: 'עברת את כל האתגרים 🎉' })],
+      actions: [{ label: 'סגור', kind: 'primary', onClick: () => { fx.tap(); d.close(); } }],
+    });
+    return;
+  }
+
   const r = store.challengeReadiness(state, challenge);
   const rows = challenge.sequence.map((item, i) => {
     const it = r.items[i];
@@ -270,29 +305,21 @@ function buildChallengeCard(challenge) {
     ]);
   });
 
-  const verdict = r.ready ? 'מוכן ✓' : `${r.readyCount}/${r.total} מוכנים`;
-
-  const summary = el('summary', { class: 'goal-summary' }, [
-    el('div', { class: 'goal-sum-top' }, [
-      el('div', { class: 'goal-title', text: challenge.name }),
-      el('div', { class: `goal-pct ${r.ready ? 'ok' : ''}`, text: `${r.percent}% מוכן` }),
-    ]),
-    el('div', { class: 'goal-bar' }, [el('div', { class: `goal-fill ${r.ready ? 'ready' : ''}`, style: `width:${r.percent}%` })]),
-  ]);
-
-  const details = el('details', { class: 'goal-details' }, [
-    summary,
-    el('div', { class: 'goal-body' }, [
-      el('div', { class: 'goal-verdict-row' }, [el('span', { class: `goal-verdict ${r.ready ? 'ok' : ''}`, text: verdict })]),
+  const dlg = systemDialog({
+    title: challenge.name,
+    bodyNodes: [
+      el('div', { class: 'goal-head' }, [
+        el('span', { class: `goal-pct ${r.ready ? 'ok' : ''}`, text: `${r.percent}% מוכן` }),
+        el('span', { class: `goal-verdict ${r.ready ? 'ok' : ''}`, text: r.ready ? 'מוכן ✓' : `${r.readyCount}/${r.total} מוכנים` }),
+      ]),
+      el('div', { class: 'goal-bar' }, [el('div', { class: `goal-fill ${r.ready ? 'ready' : ''}`, style: `width:${r.percent}%` })]),
       el('div', { class: 'goal-list' }, rows),
-      el('button', {
-        class: `btn ${r.ready ? 'btn-primary' : 'btn-ghost'}`, text: 'התחל אתגר ⚔',
-        onClick: () => { unlock(); fx.tap(); renderChallengePre(challenge); },
-      }),
-    ]),
-  ]);
-
-  return systemWindow('יעד', [details]);
+    ],
+    actions: [
+      { label: 'התחל אתגר ⚔', kind: r.ready ? 'primary' : 'ghost', onClick: () => { unlock(); fx.tap(); dlg.close(); renderChallengePre(challenge); } },
+      { label: 'סגור', kind: 'ghost', onClick: () => { fx.tap(); dlg.close(); } },
+    ],
+  });
 }
 
 function maybeNotifyReady(challenge) {
@@ -329,6 +356,15 @@ function renderChallengePre(challenge) {
     el('div', { class: 'chal-sub', text: 'תנאים לפני האתגר' }),
     el('div', { class: 'cond-list' }, condNodes),
     el('div', { class: 'chal-seq', text: `הרצף (ברצף, ללא מנוחה): ${seqText}` }),
+    challenge.video
+      ? el('a', {
+          class: 'btn btn-ghost btn-wide btn-vid', href: challenge.video, target: '_blank', rel: 'noopener',
+          'aria-label': 'סרטון הדגמה', onClick: () => fx.tap(),
+        }, [
+          el('span', { class: 'btn-ico', html: ICONS.play }),
+          'סרטון הדגמה',
+        ])
+      : null,
     el('div', { class: 'sys-actions' }, [
       el('button', { class: 'btn btn-primary', text: 'התחלתי ▶', onClick: () => { fx.start(); renderChallengeStep(challenge, 0); } }),
       el('button', { class: 'btn btn-ghost', text: 'חזרה', onClick: () => { fx.tap(); renderHome(); } }),
@@ -361,7 +397,10 @@ function renderChallengeStep(challenge, idx) {
     const ring = el('div', { class: 'rest-ring' }, [clock]);
     const goBtn = el('button', { class: 'btn btn-primary', text: 'בוצע ✓', onClick: () => { fx.complete(); advance(); } });
     body = [
-      el('div', { class: 'chal-move', text: item.label }),
+      el('div', { class: 'chal-move-row' }, [
+        el('div', { class: 'chal-move', text: item.label }),
+        videoLink(item.source),
+      ]),
       el('div', { class: 'chal-req', text: `החזק ${item.sec} שניות` }),
       ring,
       el('div', { class: 'sys-actions' }, [goBtn]),
@@ -372,7 +411,10 @@ function renderChallengeStep(challenge, idx) {
     });
   } else {
     body = [
-      el('div', { class: 'chal-move', text: item.label }),
+      el('div', { class: 'chal-move-row' }, [
+        el('div', { class: 'chal-move', text: item.label }),
+        videoLink(item.source),
+      ]),
       el('div', { class: 'chal-req', text: `${item.count} חזרות` }),
       el('div', { class: 'sys-actions' }, [
         el('button', { class: 'btn btn-primary', text: 'בוצע ✓', onClick: () => { fx.complete(); advance(); } }),
@@ -410,6 +452,18 @@ function passChallenge(challenge) {
       el('div', { class: 'levelup', text: nextId ? 'התקדמת לשלב הבא ⬆' : 'סיימת את כל האתגרים 🎉' }),
     ],
     actions: [{ label: 'מצוין', kind: 'primary', onClick: () => { fx.tap(); dlg.close(); renderHome(); } }],
+  });
+}
+
+// Small external link to an exercise's YouTube technique video (from the PDF).
+// Plain <a> so the browser/PWA opens YouTube; null when no video is mapped.
+function videoLink(name, cls = 'video-link') {
+  const url = videoFor(name);
+  if (!url) return null;
+  return el('a', {
+    class: cls, href: url, target: '_blank', rel: 'noopener',
+    'aria-label': `סרטון הדרכה — ${name}`, html: ICONS.play,
+    onClick: () => fx.tap(),
   });
 }
 
@@ -539,6 +593,15 @@ function makeHoldTimer(target, input) {
   return wrap;
 }
 
+// Segmented workout progress bar: one cell per set (step); `completed` cells
+// are filled. Shared by the step screen and the rest screen.
+function progressBar(session, completed) {
+  const total = session.steps.length;
+  const cells = [];
+  for (let i = 0; i < total; i++) cells.push(el('div', { class: `seg${i < completed ? ' on' : ''}` }));
+  return el('div', { class: 'seg-track', 'aria-label': `התקדמות ${completed}/${total} סטים` }, cells);
+}
+
 function renderStep(session) {
   clear(app);
   const { block, setNo } = session.steps[session.stepIndex];
@@ -550,7 +613,6 @@ function renderStep(session) {
     el('div', { class: 'session-progress', text:
       session.mode === 'circuit' ? `סבב ${setNo}/${session.rounds} · ${stepNum}/${stepTotal}` : `${stepNum} / ${stepTotal}` }),
   ]);
-  const progFill = el('div', { class: 'prog-fill', style: `width:${(stepNum - 1) / stepTotal * 100}%` });
 
   const isSuper = block.kind === 'superset';
 
@@ -558,6 +620,10 @@ function renderStep(session) {
   // the seconds); everything else gets quick min/max buttons + a custom field,
   // pre-filled with the last reps logged for that exercise.
   const controls = block.exercises.map((ex) => {
+    if (ex.target.type === 'routine') {
+      // Video-guided routine (warmup) — nothing to log.
+      return { wrap: null, input: { value: '' } };
+    }
     if (ex.target.type === 'time') {
       const input = el('input', { type: 'hidden' });
       return { wrap: makeHoldTimer(ex.target, input), input };
@@ -569,7 +635,10 @@ function renderStep(session) {
     el('div', { class: 'ex-row' }, [
       isSuper ? el('div', { class: 'ex-badge', text: String(i + 1) }) : null,
       el('div', { class: 'ex-info' }, [
-        el('div', { class: 'ex-name', text: ex.name }),
+        el('div', { class: 'ex-name-row' }, [
+          el('div', { class: 'ex-name', text: ex.name }),
+          videoLink(ex.name),
+        ]),
         el('div', { class: 'ex-target', text: targetText(ex.target) }),
         controls[i].wrap,
       ]),
@@ -592,7 +661,7 @@ function renderStep(session) {
 
   app.appendChild(el('div', { class: 'view view-session' }, [
     head,
-    el('div', { class: 'prog-track' }, [progFill]),
+    progressBar(session, session.stepIndex),
     win,
     abort,
   ]));
@@ -609,6 +678,10 @@ function completeStep(session, block, controls, done) {
   const last = session.stepIndex >= session.steps.length - 1;
   if (last) {
     finishWorkout(session);
+  } else if (!block.restSec) {
+    // No prescribed rest (e.g. after the warmup routine) — straight to the next step.
+    session.stepIndex += 1;
+    renderStep(session);
   } else {
     renderRest(session, block.restSec);
   }
@@ -651,7 +724,13 @@ function renderRest(session, restSec) {
     ]),
   ], { class: 'sys-dialog' });
 
-  app.appendChild(el('div', { class: 'view view-rest' }, [win]));
+  // Same segmented progress as the step screen; the set just finished counts.
+  const done = session.stepIndex + 1;
+  const head = el('div', { class: 'session-head' }, [
+    el('div', { class: 'session-plan', text: session.plan.name }),
+    el('div', { class: 'session-progress', text: `${done} / ${session.steps.length}` }),
+  ]);
+  app.appendChild(el('div', { class: 'view view-rest' }, [head, progressBar(session, done), win]));
 
   handle = startTimer(
     restSec,

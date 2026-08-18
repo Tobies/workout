@@ -1,7 +1,7 @@
 // Service worker — cache-first app shell for offline use + installability.
 // Bump CACHE when shipping changes so old caches are cleared.
 
-const CACHE = 'slworkout-v7';
+const CACHE = 'slworkout-v32';
 
 const SHELL = [
   './',
@@ -15,7 +15,10 @@ const SHELL = [
   './js/system.js',
   './js/feedback.js',
   './js/challenges.js',
+  './js/icons.js',
   './assets/icons/icon.svg',
+  './assets/fonts/playpen-hebrew.woff2',
+  './assets/fonts/playpen-latin.woff2',
 ];
 
 self.addEventListener('install', (event) => {

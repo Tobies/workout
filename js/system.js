@@ -51,7 +51,7 @@ export function systemDialog({ title = 'הודעת מערכת', bodyNodes = [], 
     )
   );
 
-  const win = systemWindow(`⚠ ${title}`, [
+  const win = systemWindow(title, [
     ...bodyNodes,
     actions.length ? actionRow : null,
   ], { class: 'sys-dialog' });

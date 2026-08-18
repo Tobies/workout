@@ -21,6 +21,26 @@ export const CHALLENGES = [
       { kind: 'reps', label: 'שכיבות סמיכה פייק בהגבהה', count: 6, source: 'שכיבות סמיכה פייק בהגבהה', requirement: 6 },
     ],
   },
+  {
+    id: '3.0',
+    name: 'אתגר מעבר 3.0#',
+    video: 'https://www.youtube.com/watch?v=fUoEtsn3m9k', // full-sequence demo from the PDF
+    conditions: [
+      'טכניקה נקייה וטווח תנועה מלא',
+      'הכול ברצף ללא מנוחה ארוכה',
+      'לצלם סרטון ברור ללא קאטים',
+      'מומלץ יומיים מנוחה לפני',
+    ],
+    sequence: [
+      { kind: 'reps', label: 'מתח באלסיט (סופינציה)', count: 5, source: 'מתח אלסיט (סופינציה)', requirement: 5 },
+      { kind: 'reps', label: 'שכיבות סמיכה בעמידת ידיים (גב לקיר)', count: 5, source: 'שכיבות סמיכה בעמידת ידיים על הקיר', requirement: 5 },
+      { kind: 'reps', label: 'פול אובר', count: 1, source: 'פול אובר', requirement: 1 },
+      { kind: 'reps', label: 'מקבילים על מתח', count: 10, source: 'מקבילים רחבים על מתח', requirement: 10 },
+      { kind: 'reps', label: 'מתח רגיל', count: 10, source: 'מתח', requirement: 10 },
+      // Hold: capacity/requirement in seconds (the workout's אלסיט is a timed hold).
+      { kind: 'hold', label: 'אלסיט', sec: 10, source: 'אלסיט', requirement: 10 },
+    ],
+  },
 ];
 
 export function getChallenge(id) {

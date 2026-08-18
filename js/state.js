@@ -19,7 +19,7 @@ export const nextRampDisplay = (d) => RAMP_DISPLAYS[(RAMP_DISPLAYS.indexOf(d) + 
 const DEFAULT_STATE = () => ({
   nextPlan: 'A',
   history: [], // { dateISO, plan, durationSec, sets:[{ exercise, target, targetMax|null, actual|null, done }] }
-  currentChallenge: '2.5',
+  currentChallenge: '3.0',
   challengesPassed: [],
   challengeNotified: false,
   rampPercent: 75,      // intensity %, [50,100]; 100 = full plan, <100 scales reps/holds down
@@ -31,7 +31,15 @@ export function load() {
     const raw = localStorage.getItem(KEY);
     if (!raw) return DEFAULT_STATE();
     const s = JSON.parse(raw);
-    return { ...DEFAULT_STATE(), ...s };
+    const st = { ...DEFAULT_STATE(), ...s };
+    // Level-3 migration: 2.5 was passed (in-app → currentChallenge became null
+    // because no next level existed yet; or offline → still '2.5'). Advance to 3.0.
+    if ((st.currentChallenge === '2.5' || st.currentChallenge == null) && !st.challengesPassed.includes('3.0')) {
+      if (!st.challengesPassed.includes('2.5')) st.challengesPassed.push('2.5');
+      st.currentChallenge = '3.0';
+      st.challengeNotified = false;
+    }
+    return st;
   } catch {
     return DEFAULT_STATE();
   }
