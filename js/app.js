@@ -19,15 +19,32 @@ let startMode = 'normal';
 
 let _wakeLock = null;
 let _wantWake = false;
+let _wakeReqInFlight = false;
 
 async function requestWakeLock() {
   _wantWake = true;
+  if (_wakeLock || _wakeReqInFlight) return;
+  if (!(typeof navigator !== 'undefined' && navigator.wakeLock &&
+        typeof document !== 'undefined' && document.visibilityState === 'visible')) return;
+  _wakeReqInFlight = true;
   try {
-    if (typeof navigator !== 'undefined' && navigator.wakeLock &&
-        typeof document !== 'undefined' && document.visibilityState === 'visible') {
-      _wakeLock = await navigator.wakeLock.request('screen');
+    const lock = await navigator.wakeLock.request('screen');
+    // The UA may release the lock on its own while the page stays visible
+    // (battery saver, system pressure) — no visibilitychange fires, so
+    // re-acquire from the sentinel's own release event.
+    lock.addEventListener('release', () => {
+      if (_wakeLock === lock) _wakeLock = null;
+      if (_wantWake && document.visibilityState === 'visible') requestWakeLock();
+    });
+    if (_wantWake) {
+      _wakeLock = lock;
+    } else {
+      // Released while the request was in flight — don't keep a stray lock.
+      try { lock.release(); } catch { /* ignore */ }
     }
-  } catch { /* denied or unsupported — non-fatal */ }
+  } catch { /* denied or unsupported — non-fatal */ } finally {
+    _wakeReqInFlight = false;
+  }
 }
 
 function releaseWakeLock() {
@@ -119,7 +136,118 @@ function intensityRow() {
   ]);
 }
 
+// ---- Backup: export / import (opened from Settings) ------------------------
+// localStorage is per-browser, so moving between browsers (Edge ↔ Chrome) or
+// devices needs a manual copy. The backup is a JSON envelope of the raw
+// localStorage values — restored verbatim, no reinterpretation.
+
+const BACKUP_KEYS = ['slworkout.v1', 'slworkout.prefs', 'slworkout.theme'];
+
+function exportBackup() {
+  const data = {};
+  for (const k of BACKUP_KEYS) {
+    try {
+      const v = localStorage.getItem(k);
+      if (v !== null) data[k] = v;
+    } catch { /* ignore */ }
+  }
+  return JSON.stringify({ app: 'slworkout-backup', v: 1, exported: new Date().toISOString(), data });
+}
+
+function openExport() {
+  const ta = el('textarea', { class: 'io-text', readonly: true, text: exportBackup() });
+  const dlg = systemDialog({
+    title: '💾 ייצוא נתונים',
+    bodyNodes: [
+      el('div', { class: 'set-hint', text: 'העתק את הטקסט ושמור אותו, או הדבק אותו בדפדפן/מכשיר אחר תחת "ייבוא נתונים".' }),
+      ta,
+    ],
+    actions: [
+      { label: 'העתק 📋', kind: 'primary', onClick: async () => {
+        fx.tap();
+        const text = ta.value || ta.textContent;
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+          } else {
+            ta.select();
+            if (document.execCommand) document.execCommand('copy');
+          }
+          notify('הועתק ✓');
+        } catch { notify('העתקה נכשלה — סמן את הטקסט והעתק ידנית'); }
+      } },
+      { label: 'סגור', kind: 'ghost', onClick: () => { fx.tap(); dlg.close(); } },
+    ],
+  });
+}
+
+function openImport() {
+  const ta = el('textarea', { class: 'io-text', placeholder: 'הדבק כאן את טקסט הגיבוי…' });
+  const dlg = systemDialog({
+    title: '📥 ייבוא נתונים',
+    bodyNodes: [
+      el('div', { class: 'set-hint', text: 'הדבק גיבוי שיוצא מהאפליקציה. השחזור מחליף את כל הנתונים בדפדפן הזה.' }),
+      ta,
+    ],
+    actions: [
+      { label: 'שחזר', kind: 'primary', onClick: () => {
+        fx.tap();
+        tryImport(ta.value !== undefined && ta.value !== '' ? ta.value : ta.textContent, dlg);
+      } },
+      { label: 'ביטול', kind: 'ghost', onClick: () => { fx.tap(); dlg.close(); } },
+    ],
+  });
+}
+
+function tryImport(raw, importDlg) {
+  let backup = null;
+  try { backup = JSON.parse(String(raw || '').trim()); } catch { /* handled below */ }
+  if (!backup || backup.app !== 'slworkout-backup' || !backup.data || typeof backup.data !== 'object') {
+    notify('גיבוי לא תקין');
+    return;
+  }
+  const countWorkouts = (json) => {
+    try {
+      const h = JSON.parse(json).history;
+      return Array.isArray(h) ? h.length : 0;
+    } catch { return 0; }
+  };
+  const incoming = typeof backup.data['slworkout.v1'] === 'string' ? countWorkouts(backup.data['slworkout.v1']) : 0;
+  const confirm = systemDialog({
+    title: 'שחזור גיבוי',
+    bodyNodes: [
+      el('div', { class: 'summary-line', text: `בגיבוי ${incoming} אימונים; הוא יחליף את ${state.history.length} האימונים שכאן.` }),
+      el('div', { class: 'set-hint', text: 'אי אפשר לבטל את הפעולה.' }),
+    ],
+    actions: [
+      { label: 'שחזר ✓', kind: 'primary', onClick: () => {
+        for (const k of BACKUP_KEYS) {
+          if (typeof backup.data[k] === 'string') {
+            try { localStorage.setItem(k, backup.data[k]); } catch { /* ignore */ }
+          }
+        }
+        // Reload so every module (state, feedback prefs, theme) re-reads storage.
+        if (typeof location !== 'undefined' && location.reload) { location.reload(); return; }
+        confirm.close(); importDlg.close();
+        state = store.load();
+        applyTheme(loadTheme());
+        renderHome();
+        notify('הגיבוי שוחזר ✓');
+      } },
+      { label: 'ביטול', kind: 'ghost', onClick: () => { fx.tap(); confirm.close(); } },
+    ],
+  });
+}
+
 function openSettings() {
+  const backupRow = (label, desc, onClick) => {
+    const row = el('button', { class: 'set-row', 'aria-label': label }, [
+      el('div', { class: 'set-top' }, [el('span', { class: 'set-label', text: label })]),
+      el('div', { class: 'set-desc', text: desc }),
+    ]);
+    row.addEventListener('click', () => { fx.tap(); onClick(); });
+    return row;
+  };
   const rows = [
     settingRow({
       icon: '🎨', label: 'ערכת נושא', desc: 'מראה האפליקציה — כהה או בהיר.',
@@ -137,6 +265,8 @@ function openSettings() {
       off: () => !isHapticOn(), cycle: () => toggleHaptic(),
     }),
     intensityRow(),
+    backupRow('💾 ייצוא נתונים', 'העתקת כל הנתונים כטקסט — להעברה לדפדפן או מכשיר אחר.', openExport),
+    backupRow('📥 ייבוא נתונים', 'שחזור מגיבוי שיוצא בעבר. מחליף את הנתונים הקיימים.', openImport),
   ];
   const dlg = systemDialog({
     title: 'הגדרות',
@@ -267,12 +397,25 @@ function renderPreview(plan, mode = 'normal') {
     : null;
   const win = systemWindow('👁 תצוגה מקדימה', [banner, el('div', { class: 'pv-list' }, blocks)]);
 
+  // Peek at the other workout too. Only the upcoming plan can be started from
+  // here — the other one is a read-only reference.
+  const isNext = plan.id === state.nextPlan;
+  const otherId = plan.id === 'A' ? 'B' : 'A';
+  const switchBtn = el('button', {
+    class: 'btn btn-ghost btn-wide pv-switch', type: 'button',
+    text: `הצג את ${PLANS[otherId].name} ⇄`,
+    onClick: () => { fx.tap(); renderPreview(scaledPlan(PLANS[otherId], state.rampPercent), mode); },
+  });
+  const note = isNext ? null : el('div', { class: 'pv-other-note', text: 'לעיון בלבד — זה לא האימון הבא' });
+
   const actions = el('div', { class: 'sys-actions' }, [
-    el('button', { class: 'btn btn-primary', text: 'התחל ⚔', onClick: () => { unlock(); fx.start(); startWorkout(plan, mode); } }),
+    isNext
+      ? el('button', { class: 'btn btn-primary', text: 'התחל ⚔', onClick: () => { unlock(); fx.start(); startWorkout(plan, mode); } })
+      : null,
     el('button', { class: 'btn btn-ghost', text: 'חזרה', onClick: () => { fx.tap(); renderHome(); } }),
   ]);
 
-  app.appendChild(el('div', { class: 'view view-preview' }, [head, win, actions]));
+  app.appendChild(el('div', { class: 'view view-preview' }, [head, win, note, switchBtn, actions]));
 }
 
 // ---- Rank-up challenge -----------------------------------------------------
@@ -357,9 +500,10 @@ function renderChallengePre(challenge) {
     el('div', { class: 'cond-list' }, condNodes),
     el('div', { class: 'chal-seq', text: `הרצף (ברצף, ללא מנוחה): ${seqText}` }),
     challenge.video
-      ? el('a', {
-          class: 'btn btn-ghost btn-wide btn-vid', href: challenge.video, target: '_blank', rel: 'noopener',
-          'aria-label': 'סרטון הדגמה', onClick: () => fx.tap(),
+      ? el('button', {
+          class: 'btn btn-ghost btn-wide btn-vid', type: 'button',
+          'aria-label': 'סרטון הדגמה',
+          onClick: () => { fx.tap(); openVideo(challenge.name, challenge.video); },
         }, [
           el('span', { class: 'btn-ico', html: ICONS.play }),
           'סרטון הדגמה',
@@ -376,6 +520,7 @@ function renderChallengePre(challenge) {
 
 function renderChallengeStep(challenge, idx) {
   clear(app);
+  requestWakeLock(); // no-op if held; recovers a lock lost mid-run
   const item = challenge.sequence[idx];
   const total = challenge.sequence.length;
   let handle = null;
@@ -455,15 +600,51 @@ function passChallenge(challenge) {
   });
 }
 
-// Small external link to an exercise's YouTube technique video (from the PDF).
-// Plain <a> so the browser/PWA opens YouTube; null when no video is mapped.
+// In-app YouTube player: opens the technique video in a styled dialog instead
+// of navigating away to YouTube mid-workout.
+
+function youtubeId(url) {
+  const m = /(?:youtu\.be\/|v=|shorts\/|embed\/)([\w-]{11})/.exec(url || '');
+  return m ? m[1] : null;
+}
+
+function openVideo(name, url) {
+  const id = youtubeId(url);
+  if (!id) { // unparseable URL — fall back to the old external-tab behavior
+    if (typeof window !== 'undefined' && window.open) window.open(url, '_blank', 'noopener');
+    return;
+  }
+  const frame = el('div', {
+    class: 'video-embed',
+    html:
+      `<iframe src="https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0&playsinline=1" ` +
+      `title="סרטון הדרכה" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" ` +
+      `allowfullscreen></iframe>`,
+  });
+  const dlg = systemDialog({
+    title: '🎥 סרטון הדרכה',
+    dismissible: true, // tap outside closes (removing the iframe stops playback)
+    bodyNodes: [
+      el('div', { class: 'video-name', text: name }),
+      frame,
+      el('a', {
+        class: 'video-ext', href: url, target: '_blank', rel: 'noopener',
+        text: 'פתיחה ביוטיוב ↗', onClick: () => fx.tap(),
+      }),
+    ],
+    actions: [{ label: 'סגור', kind: 'primary', onClick: () => { fx.tap(); dlg.close(); } }],
+  });
+}
+
+// Small button that opens an exercise's technique video (from the PDF) in the
+// in-app player; null when no video is mapped.
 function videoLink(name, cls = 'video-link') {
   const url = videoFor(name);
   if (!url) return null;
-  return el('a', {
-    class: cls, href: url, target: '_blank', rel: 'noopener',
+  return el('button', {
+    class: cls, type: 'button',
     'aria-label': `סרטון הדרכה — ${name}`, html: ICONS.play,
-    onClick: () => fx.tap(),
+    onClick: () => { fx.tap(); openVideo(name, url); },
   });
 }
 
@@ -548,9 +729,15 @@ function makeRepControl(ex, prefill) {
 }
 
 // Count-up hold timer for time-based exercises (e.g. handstand 30–60s).
-// Start → counts up; pings at the min target, auto-stops at the max; the held
-// seconds are written into `input` so the set logs the real duration.
+// Start → counts up; auto-stops at the prescribed cap — the max of a range,
+// or the exact required time when the target is a single value (L-sit 15s).
+// A range also pings at its min. The held seconds are written into `input`
+// so the set logs the real duration.
 function makeHoldTimer(target, input) {
+  // Stop point: range max, or the single required value. A min-only/open-ended
+  // hold would have neither and never auto-stops.
+  const stopAt = target.max || target.min || null;
+  const pingAt = target.max && target.min && target.min < target.max ? target.min : null;
   const display = el('div', { class: 'hold-time', text: "0שנ'" });
   const btn = el('button', { class: 'btn btn-ghost hold-btn', text: 'התחל אחיזה ▶' });
   const wrap = el('div', { class: 'hold-timer' }, [display, btn]);
@@ -578,12 +765,13 @@ function makeHoldTimer(target, input) {
     sw = startStopwatch((sec) => {
       elapsed = sec;
       display.textContent = `${sec}שנ'`;
-      if (!reachedMin && target.min && sec >= target.min) {
+      if (!reachedMin && pingAt && sec >= pingAt) {
         reachedMin = true;
         wrap.classList.add('reached');
         fx.tick();
       }
-      if (target.max && sec >= target.max) {
+      if (stopAt && sec >= stopAt) {
+        wrap.classList.add('reached');
         fx.complete();
         stopHold();
       }
@@ -604,6 +792,7 @@ function progressBar(session, completed) {
 
 function renderStep(session) {
   clear(app);
+  requestWakeLock(); // no-op if held; recovers a lock lost mid-session
   const { block, setNo } = session.steps[session.stepIndex];
   const stepNum = session.stepIndex + 1;
   const stepTotal = session.steps.length;
@@ -693,7 +882,14 @@ const RING_C = 2 * Math.PI * RING_R;
 function renderRest(session, restSec) {
   clear(app);
   const next = session.steps[session.stepIndex + 1];
-  const nextLabel = next.block.exercises.map((e) => e.name).join(' + ');
+  // "Up next" line with an inline video preview button per exercise.
+  const nextLine = el('div', { class: 'rest-next' }, [
+    'הבא: ',
+    ...next.block.exercises.flatMap((e, i) => [
+      i > 0 ? ' + ' : null,
+      el('span', { class: 'rest-next-ex' }, [e.name, videoLink(e.name, 'video-link pv-video')]),
+    ]),
+  ]);
 
   const clock = el('div', { class: 'rest-clock', text: fmtClock(restSec) });
   const svg = el('div', {
@@ -718,7 +914,7 @@ function renderRest(session, restSec) {
   const win = systemWindow('⏳ מנוחה', [
     ring,
     el('div', { class: 'rest-sub', text: `מנוחה: ${restText(restSec)}` }),
-    el('div', { class: 'rest-next', text: `הבא: ${nextLabel}` }),
+    nextLine,
     el('div', { class: 'sys-actions' }, [
       el('button', { class: 'btn btn-primary', text: 'דלג ⏭', onClick: () => { fx.tap(); proceed(); } }),
     ]),

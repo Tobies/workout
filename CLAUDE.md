@@ -37,7 +37,8 @@ assets/fonts/*.woff2    Playpen Sans Hebrew (OFL, from Google Fonts) — hebrew 
                         variable weight 100-800; bundled locally (offline PWA, no CDN)
 js/
   app.js        entry. View router + all rendering: home, workout session, rest, summary,
-                challenge card + guided challenge run, ⚙ settings sheet, ramp-up scaling.
+                challenge card + guided challenge run, ⚙ settings sheet, ramp-up scaling,
+                screen wake lock, in-app YouTube player dialog (openVideo).
   state.js      localStorage load/save; derived real stats; challenge readiness; ramp helpers.
   workouts.js   Plan A & B data + target/rest helpers + ramp scaling (scaleTarget/scaledPlan).
   challenges.js rank-up challenge data + helpers.
@@ -86,8 +87,14 @@ mis-render. **`restSec: 0`** on a block = no rest screen after its sets (`comple
 extracted from the PDF's link annotations, keyed by the **exact exercise name** (same matching rule
 as challenge `source` — challenge steps look up videos via `item.source`). A challenge entry can
 also carry a top-level `video` (full-sequence demo). UI: `videoLink(name)` in `app.js` renders a
-small 🎥 `<a target="_blank">`; shown per exercise in the session step, the preview, and each
-challenge step; the challenge pre-screen shows a "סרטון הדגמה 🎥" button from `challenge.video`.
+small 🎥 **button** that opens `openVideo(name, url)` — an **in-app player dialog** (dismissible
+`systemDialog` with a 16:9 `youtube-nocookie.com/embed` iframe, autoplay+playsinline, styled
+`.video-embed` ink frame, plus a "פתיחה ביוטיוב ↗" fallback link). `youtubeId(url)` parses
+watch/youtu.be/shorts/embed URLs; unparseable → old `window.open` behavior. Closing the dialog
+removes the iframe → playback stops. Shown per exercise in the session step, the preview, the
+**rest screen** ("הבא:" line — one button per upcoming exercise, `.rest-next-ex`), and each
+challenge step; the challenge pre-screen's "סרטון הדגמה" button opens the same player with
+`challenge.video`.
 
 **Ramp-up scaling** (`scaleTarget(t,pct)`, `scaledPlan(plan,pct)`): return a *copy* of a target/plan
 with reps/holds scaled to `pct`% (floor 1; `range`→`fixed` when ends collapse). Scales
@@ -155,20 +162,38 @@ Helpers: `getChallenge(id)`, `nextChallengeId(id)`, `reqText(item)`.
   readiness %) → `openChallenge()` dialog (per-move readiness rows + "התחל אתגר"). START/preview
   run the **scaled** plan (`scaledPlan`). The **intensity stepper lives in Settings** (not on
   home); closing Settings re-renders home, which re-derives the scaled plan.
+- **Preview** (`renderPreview`): read-only block/exercise listing of the scaled plan + a wide
+  switch button ("הצג את אימון X ⇄") that re-renders with the **other** plan —
+  `scaledPlan(PLANS[otherId], state.rampPercent)` from pristine source data (no double-scaling).
+  Only the **upcoming** plan (`plan.id === state.nextPlan`) shows "התחל ⚔"; the other plan is
+  reference-only with a `.pv-other-note` ("לעיון בלבד") so the A/B alternation can't be broken by
+  accident.
 - **Session** (`renderStep`→`completeStep`→`renderRest`): runs a **scaled copy** of the plan, so the
   shown target + stored `targetMax` are already ramp-scaled. Progress = **segmented bar**
   (`progressBar(session, completed)`, `.seg-track`/`.seg.on` — one cell per set), shown on BOTH the
   step screen (completed = `stepIndex`) and the rest screen (completed = `stepIndex + 1`, since the
   just-finished set counts). Per set show exercise(s) + target; superset shows both. Optional rep logging (`<details>` "רישום חזרות"). `time` targets get a
-  count-up **hold timer** (`makeHoldTimer`) that auto-fills the logged seconds. `completeStep`
+  count-up **hold timer** (`makeHoldTimer`) that auto-fills the logged seconds and **auto-stops at
+  the prescribed cap** (`stopAt = max || min`): exact `time(v)` stops at v, `time(a,b)` pings at a
+  (`pingAt` — only when a real range) and stops at b; a min-only/open-ended hold (neither) would
+  never auto-stop. Auto-stop uses the *scaled* values. `completeStep`
   stores `{exercise, target, targetMax, actual, done}`. Rest = countdown ring (SVG sweep, gold +
-  ticks in last 3s); no rest after final set. `finishWorkout` saves history, flips `nextPlan`, then
+  ticks in last 3s) + "הבא:" line with per-exercise 🎥 preview buttons; no rest after final set.
+  `finishWorkout` saves history, flips `nextPlan`, then
   the summary (sets + time — **no XP**) asks **"היה מאתגר מספיק?"** (`קל מדי`/`בול`/`קשה מדי`) →
   nudges `rampPercent` ±`RAMP_STEP` for next time.
 - **Challenge run**: `renderChallengePre` (conditions checklist) → `renderChallengeStep`
   (each move in order, no rest; hold move uses stopwatch to its `sec`) → `renderChallengeVerdict`
   (honest pass/fail) → `passChallenge` (record + advance + dialog). Ready-notification fires once
   via `maybeNotifyReady` when readiness crosses to ready.
+- **Wake lock** (top of `app.js`): `requestWakeLock`/`releaseWakeLock` keep the screen on during a
+  session/challenge run; released on home, preview, and finish. Robustness (2026-08 fix — screen
+  used to sleep mid-workout): a sentinel `release` listener re-acquires when the UA drops the lock
+  **while the page is visible** (battery saver, system pressure); `visibilitychange` re-acquires on
+  tab return; `renderStep`/`renderChallengeStep` also call `requestWakeLock()` (no-op while held)
+  to recover from transient denials. Guards: `_wakeLock`/`_wakeReqInFlight` prevent stacking; a
+  lock resolving after `releaseWakeLock()` is released immediately. Battery saver can deny outright
+  — not fixable in-app.
 
 ## Theme + feedback
 
@@ -185,7 +210,10 @@ Helpers: `getChallenge(id)`, `nextChallengeId(id)`, `reqText(item)`.
   are hand-drawn SVGs from `js/icons.js` (no emoji) — sized per context in CSS
   (`.action-btn svg` 30px, `.icon-round svg` 22px, `.video-link svg` 17px, `.btn-ico svg` 18px).
   `.btn-primary` = solid ink. Progress bars = outlined tracks with ink fill. Spacing is generous
-  (`.view-home` gap 30px) — don't re-clutter home. Theme-color hexes in THREE places, keep in
+  (`.view-home` gap 30px) — don't re-clutter home. `.sys-dialog` doubles as the in-view card class
+  (session step / rest / challenge windows): max-width 420px + `margin-inline: auto` so it centers
+  when `#app` (560px) is wider on desktop; session/rest/challenge `session-head` + `seg-track` are
+  capped to the same 420px to stay aligned with the card. Theme-color hexes in THREE places, keep in
   sync: `applyTheme` (`app.js`), `<meta name="theme-color">` (`index.html`),
   `manifest.webmanifest` (`#faf7f0` light / `#211e1a` dark). Inline `<head>` script applies theme
   before paint. Animations minimal (one fade); honor `prefers-reduced-motion`.
@@ -201,9 +229,17 @@ Helpers: `getChallenge(id)`, `nextChallengeId(id)`, `reqText(item)`.
   the scaled plan after an intensity change. CSS = `.set-*` + `.ramp-*` classes. `rampDisplay` in
   state is now **legacy/unused** (the old home intensity-widget display mode; kept so old saves
   load cleanly). Settings live **off the main UI** (one gear, not a toolbar).
+- **Backup export/import** (`exportBackup`/`openExport`/`openImport`/`tryImport`, `app.js`; two
+  extra settings rows): localStorage is per-browser (Edge ↔ Chrome don't share), so the backup is
+  a JSON envelope `{app:'slworkout-backup', v:1, exported, data:{<raw localStorage strings>}}` over
+  `BACKUP_KEYS` = state/prefs/theme — restored **verbatim**, no reinterpretation. Export dialog =
+  readonly `.io-text` textarea (LTR) + clipboard copy (fallback select+execCommand). Import
+  validates the envelope (bad paste → toast, storage untouched), shows a **confirm dialog with
+  workout counts** (backup vs device, irreversible), then writes keys and `location.reload()` so
+  every module re-reads storage (non-browser fallback: reload state + theme + re-render in place).
 - **Ramp-up**: scales the prescribed plan down so sessions stay clean (e.g. 3×12 you grind into
-  12/8/6 → 3×9 you actually own). `rampPercent` (default 75) in state; adjusted by the start-window
-  intensity widget (`±`) **and** the post-workout prompt (±`RAMP_STEP`, clamped [50,100]). Scaling is
+  12/8/6 → 3×9 you actually own). `rampPercent` (default 75) in state; adjusted by the Settings
+  intensity stepper (`±`) **and** the post-workout prompt (±`RAMP_STEP`, clamped [50,100]). Scaling is
   applied at **one** choke point — `scaledPlan(plan, rampPercent)` in `renderHome`, passed into
   `startWorkout`/`renderPreview`; everything downstream (display, hold timer, history `targetMax`)
   consumes the scaled plan with no extra edits. Warmup (block 0) and pure `max()` are never scaled.
@@ -213,9 +249,18 @@ Helpers: `getChallenge(id)`, `nextChallengeId(id)`, `reqText(item)`.
 ## PWA / deploy
 
 - `sw.js`: list every shipped file in `SHELL`; **bump `CACHE` ('slworkout-vN')** whenever any
-  cached file changes, or users get stale assets. Add new `js/*.js` to `SHELL`.
-- Deploy = enable GitHub Pages on the repo's default branch root. Not yet a git repo — `git init`
-  when asked. Use relative paths + relative SW scope (already done).
+  cached file changes, or users get stale assets. Add new `js/*.js` to `SHELL`. The fetch handler
+  **ignores cross-origin requests** entirely (early return) — required so the in-app YouTube embed
+  iframe is never answered with the cached `index.html` offline; only same-origin GETs are
+  cache-first.
+- Deploy = GitHub Pages on the repo's default branch (`master`) root; commit + push serves it.
+  Use relative paths + relative SW scope (already done). Local check: any static HTTP server
+  (`python -m http.server 8000`) — `file://` breaks modules+SW.
+- Manifest `background_color` = **`#faf7f0` (light paper)** — the PWA **splash screen** background
+  (owner request 2026-08; icon + name text on it at launch). It's a single static color (can't
+  follow the theme), while `theme_color` stays dark `#211e1a`. Installed PWAs cache the manifest —
+  splash changes may need uninstall + reinstall to show (Edge installs shortcut-style PWAs; same
+  manifest fields as Chrome).
 
 ## How to verify (no full browser available here)
 
@@ -223,9 +268,14 @@ Edge/Chrome binaries are absent in this environment; PDFs/headless rendering are
 1. `node --check` every changed `.js`.
 2. **DOM-stub simulation in Node** — stub `document`/`window`/`localStorage`/`requestAnimationFrame`,
    `import('./js/app.js')`, then find elements by text and `.click()` them to drive flows. This has
-   reliably caught render/logic breaks for the workout flow and challenge run. (Pattern: a minimal
-   `N` node class with appendChild/textContent/listeners/classList; seed `localStorage` before
-   import to test specific states.)
+   reliably caught render/logic breaks for the workout flow, challenge run, video dialogs, wake
+   lock, hold-timer auto-stop, and backup import/export. (Pattern: a minimal `N` node class with
+   appendChild/textContent/listeners/classList — classList needs `toggle` too (`settingRow` uses
+   it) and buttons found by `aria-label` when icon-only; seed `localStorage` before import to test
+   specific states; stub `navigator.wakeLock`/`navigator.clipboard` to assert those flows; override
+   `setInterval` (≥1000ms → 2ms) to fast-forward timers; dialogs live on `document.body` as
+   `.sys-overlay` siblings of `#app` — search there, and allow ~250ms after close before asserting
+   removal.)
 3. Pure logic (readiness, stats, streaks) tested by importing the functions directly with crafted
    `history` arrays.
 Tell the user to do the real visual check by serving over HTTP (`file://` breaks modules+SW) and

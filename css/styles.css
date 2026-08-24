@@ -324,6 +324,12 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; justif
 /* ---- Session ---- */
 
 .session-head { display: flex; justify-content: space-between; align-items: baseline; }
+/* Keep the header + set-progress bar the same width as the 420px session card
+   (visible only on desktop, where #app is wider than the card). */
+.view-session .session-head, .view-rest .session-head, .view-challenge .session-head,
+.view-session .seg-track, .view-rest .seg-track {
+  width: 100%; max-width: 420px; margin-inline: auto;
+}
 .session-plan { font-size: 17px; font-weight: 800; }
 .session-progress { font-size: 14px; font-weight: 700; color: var(--ink-dim); }
 
@@ -361,9 +367,36 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; justif
   padding: 6px 9px; border: 2px solid var(--ink-line); border-radius: var(--wobble-round);
   background: var(--panel);
   box-shadow: 2px 2px 0 var(--shadow-ink);
+  color: var(--ink); font: inherit; cursor: pointer; /* button reset (was an <a>) */
 }
 .video-link:active { transform: translate(1px, 1px); box-shadow: 0 0 0 var(--shadow-ink); }
 .pv-video { font-size: 12px; padding: 3px 6px; box-shadow: none; }
+.pv-other-note { text-align: center; font-size: 13px; font-weight: 700; color: var(--ink-dim); }
+
+/* Backup export/import textarea (JSON — force LTR). */
+.io-text {
+  width: 100%; min-height: 110px; resize: vertical;
+  font-family: var(--font); font-size: 12px; color: var(--ink);
+  background: var(--input-bg);
+  border: 2px solid var(--ink-line); border-radius: var(--wobble-s);
+  padding: 10px;
+  direction: ltr; text-align: left;
+}
+
+/* ---- In-app video player dialog ---- */
+
+.video-name { text-align: center; font-size: 14px; font-weight: 700; color: var(--ink-dim); }
+.video-embed {
+  width: 100%; aspect-ratio: 16 / 9;
+  border: 2px solid var(--ink-line); border-radius: var(--wobble-s);
+  overflow: hidden; background: #000;
+  box-shadow: 3px 3px 0 var(--shadow-ink);
+}
+.video-embed iframe { width: 100%; height: 100%; border: 0; display: block; }
+.video-ext {
+  display: block; text-align: center;
+  font-size: 13px; font-weight: 700; color: var(--ink-dim);
+}
 .chal-move-row { display: flex; align-items: center; justify-content: center; gap: 10px; }
 
 .hold-timer { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
@@ -446,6 +479,7 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; justif
 .rest-ring.urgent .rest-clock { color: var(--gold); }
 .rest-sub { text-align: center; color: var(--ink-dim); }
 .rest-next { text-align: center; font-size: 14px; }
+.rest-next-ex { display: inline-flex; align-items: center; gap: 6px; }
 
 /* ---- Dialog / overlay ---- */
 
@@ -459,6 +493,9 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; justif
 .sys-overlay.show { opacity: 1; }
 .sys-dialog {
   width: 100%; max-width: 420px;
+  /* Also used as an in-view card (session step / rest / challenge): #app is
+     560px wide on desktop, so without this the 420px card hugs one edge. */
+  margin-inline: auto;
   max-height: calc(100dvh - 40px); overflow-y: auto;
   transform: translateY(8px); transition: transform .18s ease;
 }

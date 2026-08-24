@@ -1,7 +1,7 @@
 // Service worker — cache-first app shell for offline use + installability.
 // Bump CACHE when shipping changes so old caches are cleared.
 
-const CACHE = 'slworkout-v32';
+const CACHE = 'slworkout-v39';
 
 const SHELL = [
   './',
@@ -38,6 +38,9 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET') return;
+  // Leave cross-origin requests (e.g. the in-app YouTube embed iframe) to the
+  // browser — never answer them with the cached app shell.
+  if (new URL(request.url).origin !== self.location.origin) return;
 
   event.respondWith(
     caches.match(request).then((cached) => {
