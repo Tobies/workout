@@ -343,6 +343,9 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; justif
   transition: background .3s ease;
 }
 .seg.on { background: var(--ink); }
+.seg.seg-alt.on {
+  background: repeating-linear-gradient(45deg, var(--ink) 0 5px, var(--paper) 5px 6.5px);
+}
 
 .super-hint { font-size: 13px; color: var(--ink-dim); text-align: center; }
 .ex-list { display: flex; flex-direction: column; gap: 12px; }
