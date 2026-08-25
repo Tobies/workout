@@ -1,7 +1,7 @@
 // Service worker — cache-first app shell for offline use + installability.
 // Bump CACHE when shipping changes so old caches are cleared.
 
-const CACHE = 'slworkout-v42';
+const CACHE = 'slworkout-v44';
 
 const SHELL = [
   './',

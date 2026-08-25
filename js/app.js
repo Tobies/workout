@@ -781,16 +781,22 @@ function makeHoldTimer(target, input) {
   return wrap;
 }
 
-// Segmented workout progress bar: one cell per set (step); `completed` cells
-// are filled. Fill alternates by block (solid ink / diagonal stripes) so each exercise's
-// run of sets reads as a group. Shared by the step screen and the rest screen.
+// Segmented workout progress bar: one cell per exercise block, width scaled to
+// its set count; each cell is a mini progress bar of that block's completed
+// sets. Shared by the step screen and the rest screen.
 function progressBar(session, completed) {
   const total = session.steps.length;
-  const cells = [];
-  for (let i = 0; i < total; i++) {
-    const alt = session.steps[i].blockIndex % 2 === 1 ? ' seg-alt' : '';
-    cells.push(el('div', { class: `seg${alt}${i < completed ? ' on' : ''}` }));
+  const doneByBlock = [];
+  for (let i = 0; i < completed; i++) {
+    const bi = session.steps[i].blockIndex;
+    doneByBlock[bi] = (doneByBlock[bi] || 0) + 1;
   }
+  const cells = session.plan.blocks.map((b, bi) => {
+    const pct = Math.min(100, ((doneByBlock[bi] || 0) / b.sets) * 100);
+    return el('div', { class: 'seg', style: `flex:${b.sets}` }, [
+      el('div', { class: 'seg-fill', style: `width:${pct}%` }),
+    ]);
+  });
   return el('div', { class: 'seg-track', 'aria-label': `התקדמות ${completed}/${total} סטים` }, cells);
 }
 
