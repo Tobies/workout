@@ -1,0 +1,41 @@
+# Daily "time to stretch" Web Push, sent from GitHub's cron because the app is a
+# static site with no server of its own. See .github/scripts/send-push.mjs.
+#
+# Setup (once):
+#   Settings → Secrets and variables → Actions → New repository secret
+#     VAPID_PRIVATE_KEY   the private half of the key pair (public half is in js/push.js)
+#     PUSH_SUBSCRIPTIONS  the subscription JSON copied from the app: הגדרות → תזכורת מתיחות
+#                         (several devices: a JSON array of them)
+#   Then "Run workflow" here once to test — a manual run sends immediately.
+#
+# Timing: two crons cover Israel summer time (UTC+3) and winter time (UTC+2).
+# The script checks which one is 09:xx local and the other run exits without
+# sending. Minute 2 (not 0) — GitHub delays jobs queued exactly on the hour.
+#
+# Gotcha: GitHub disables scheduled workflows in a public repo after 60 days
+# without commits; any push re-enables it (or Actions → this workflow → Enable).
+name: Stretch reminder
+
+on:
+  schedule:
+    - cron: '2 6 * * *'   # 09:02 IDT (summer)
+    - cron: '2 7 * * *'   # 09:02 IST (winter)
+  workflow_dispatch:      # manual test: sends right away
+
+permissions:
+  contents: read
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Send the reminder
+        env:
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          PUSH_SUBSCRIPTIONS: ${{ secrets.PUSH_SUBSCRIPTIONS }}
+          SCHEDULE: ${{ github.event.schedule }}
+          REMINDER_TZ: Asia/Jerusalem
+          REMINDER_HOUR: '9'
+        run: node .github/scripts/send-push.mjs

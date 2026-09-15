@@ -272,9 +272,18 @@ body::before {
 button.set-row:active { transform: scale(0.99); }
 .set-row.off { opacity: 0.55; }
 .set-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.set-label { font-size: 15px; font-weight: 700; color: var(--ink); }
+.set-label { font-size: 15px; font-weight: 700; color: var(--ink); display: inline-flex; align-items: center; gap: 8px; }
 .set-state { font-size: 13.5px; font-weight: 700; color: var(--ink-dim); white-space: nowrap; }
 .set-desc { font-size: 12.5px; color: var(--ink-dim); margin-top: 5px; line-height: 1.5; }
+/* Hand-drawn row/title icons (replaced the old emoji) */
+.set-ico { display: inline-flex; flex: none; }
+.set-ico svg { width: 19px; height: 19px; display: block; }
+.title-ico { display: inline-flex; align-items: center; gap: 8px; }
+.title-ico .set-ico svg { width: 20px; height: 20px; }
+.inline-ico { display: inline-flex; vertical-align: -3px; margin-inline-end: 6px; }
+.inline-ico svg { width: 16px; height: 16px; display: block; }
+/* Reminder dialog body (re-rendered in place) */
+.rem-box { display: flex; flex-direction: column; gap: 14px; }
 
 /* ---- Buttons ---- */
 
@@ -314,6 +323,7 @@ button.set-row:active { transform: scale(0.99); }
 a.btn { text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 8px; text-align: center; }
 .btn-ico { display: inline-flex; }
 .btn-ico svg { width: 18px; height: 18px; }
+.btn .btn-ico { vertical-align: -4px; margin-inline-end: 7px; }
 .icon-round svg { width: 22px; height: 22px; display: block; }
 .chip-icon { display: inline-flex; }
 .action-btn svg { width: 30px; height: 30px; display: block; }
@@ -326,8 +336,8 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; justif
 .session-head { display: flex; justify-content: space-between; align-items: baseline; }
 /* Keep the header + set-progress bar the same width as the 420px session card
    (visible only on desktop, where #app is wider than the card). */
-.view-session .session-head, .view-rest .session-head, .view-challenge .session-head,
-.view-session .seg-track, .view-rest .seg-track {
+.view-session .session-head, .view-rest .session-head, .view-challenge .session-head, .view-stretch .session-head,
+.view-session .seg-track, .view-rest .seg-track, .view-stretch .seg-track {
   width: 100%; max-width: 420px; margin-inline: auto;
 }
 .session-plan { font-size: 17px; font-weight: 800; }
@@ -557,6 +567,14 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; justif
 .chal-move { font-size: 24px; font-weight: 800; text-align: center; }
 .chal-req { font-size: 16px; color: var(--ink-dim); text-align: center; }
 .chal-remind { font-size: 13px; color: var(--gold); text-align: center; }
+
+/* ---- Stretching routine ---- */
+
+.st-list { display: flex; flex-direction: column; gap: 9px; }
+.st-row { display: flex; align-items: center; gap: 9px; font-size: 14px; }
+.st-name { flex: 1; }
+.st-sec { font-weight: 700; color: var(--ink-dim); white-space: nowrap; }
+.st-side { text-align: center; font-size: 16px; font-weight: 700; }
 
 /* ---- Animations (minimal: one gentle fade on view change) ---- */
 

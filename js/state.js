@@ -23,7 +23,9 @@ const DEFAULT_STATE = () => ({
   challengesPassed: [],
   challengeNotified: false,
   rampPercent: 75,      // intensity %, [50,100]; 100 = full plan, <100 scales reps/holds down
-  rampDisplay: 'full',  // home intensity widget: 'full' | 'readonly' | 'hidden'
+  rampDisplay: 'full',  // LEGACY (old home intensity widget) — unused, kept so old saves load
+  workoutMode: 'normal', // 'normal' (block by block) | 'circuit' (one set of each per round); Settings
+  stretchLog: [],       // completed stretching runs: { dateISO, durationSec, holds, total } — not workouts
 });
 
 export function load() {
@@ -39,6 +41,8 @@ export function load() {
       st.currentChallenge = '3.0';
       st.challengeNotified = false;
     }
+    if (st.workoutMode !== 'circuit') st.workoutMode = 'normal';
+    if (!Array.isArray(st.stretchLog)) st.stretchLog = [];
     return st;
   } catch {
     return DEFAULT_STATE();
@@ -116,6 +120,18 @@ export function stats(state) {
     longestStreak: longest,
     weekCount: thisWeekCount(h),
     lastWorkout: totalWorkouts ? h[h.length - 1].dateISO : null,
+  };
+}
+
+// Stretching runs are logged separately from workouts (they don't feed streaks,
+// the weekly goal or challenge readiness). Same "real data only" rule.
+export function stretchStats(state) {
+  const log = state.stretchLog || [];
+  return {
+    total: log.length,
+    totalTimeSec: log.reduce((n, s) => n + (s.durationSec || 0), 0),
+    weekCount: thisWeekCount(log),
+    last: log.length ? log[log.length - 1].dateISO : null,
   };
 }
 

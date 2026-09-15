@@ -7,13 +7,15 @@ import { startTimer, startStopwatch, fmtClock } from './timer.js';
 import { el, clear, systemWindow, systemDialog, notify } from './system.js';
 import { ICONS } from './icons.js';
 import { fx, unlock, isSoundOn, isHapticOn, toggleSound, toggleHaptic } from './feedback.js';
+import { STRETCH_ROUTINE, stretchTotalSec, stepLabel } from './stretches.js';
+import * as push from './push.js';
 
 const app = document.getElementById('app');
 let state = store.load();
 
-// Per-start workout mode chosen on the home screen (not persisted): 'normal'
-// (block-by-block) or 'circuit' (one set of each exercise per round).
-let startMode = 'normal';
+// Workout mode — 'normal' (block by block) or 'circuit' (one set of each
+// exercise per round) — is a persisted setting (`state.workoutMode`, Settings).
+const workoutMode = () => (state.workoutMode === 'circuit' ? 'circuit' : 'normal');
 
 // ---- Screen wake lock (keep the display awake during a workout) -------------
 
@@ -95,18 +97,32 @@ function toggleTheme() {
 
 // ---- Settings (kept off the main UI; opened from the ⚙ button) -------------
 
-// One tappable settings row: label + description + current-mode readout. Tapping
-// advances the setting and updates the readout in place (no re-render flicker).
+// Icons are hand-drawn SVG strings (icons.js); a function picks one by state.
+const iconHtml = (icon) => (typeof icon === 'function' ? icon() : icon);
+
+// Icon + text node for settings rows (`set-label`) and dialog titles (`title-ico`).
+function iconLabel(icon, text, cls = 'set-label') {
+  return el('span', { class: cls }, [el('span', { class: 'set-ico', html: iconHtml(icon) }), text]);
+}
+
+// One tappable settings row: icon + label + description + current-mode readout.
+// Tapping advances the setting and updates the readout (and a state-dependent
+// icon, e.g. sun/moon) in place — no re-render flicker.
 function settingRow(cfg) {
   const stateEl = el('span', { class: 'set-state', text: cfg.value() });
+  const icoEl = cfg.icon ? el('span', { class: 'set-ico', html: iconHtml(cfg.icon) }) : null;
   const row = el('button', { class: 'set-row', 'aria-label': cfg.label }, [
     el('div', { class: 'set-top' }, [
-      el('span', { class: 'set-label', text: cfg.icon ? `${cfg.icon} ${cfg.label}` : cfg.label }),
+      el('span', { class: 'set-label' }, [icoEl, cfg.label]),
       stateEl,
     ]),
     el('div', { class: 'set-desc', text: cfg.desc }),
   ]);
-  const sync = () => { stateEl.textContent = cfg.value(); if (cfg.off) row.classList.toggle('off', cfg.off()); };
+  const sync = () => {
+    stateEl.textContent = cfg.value();
+    if (icoEl) icoEl.innerHTML = iconHtml(cfg.icon);
+    if (cfg.off) row.classList.toggle('off', cfg.off());
+  };
   row.addEventListener('click', () => { fx.tap(); cfg.cycle(); sync(); });
   sync();
   return row;
@@ -125,7 +141,7 @@ function intensityRow() {
   };
   return el('div', { class: 'set-row' }, [
     el('div', { class: 'set-top' }, [
-      el('span', { class: 'set-label', text: '🎚️ עצימות' }),
+      iconLabel(ICONS.gauge, 'עצימות'),
       el('div', { class: 'ramp-ctl' }, [
         el('button', { class: 'ramp-btn', 'aria-label': 'הפחת עצימות', text: '−', onClick: () => nudge(-store.RAMP_STEP) }),
         val,
@@ -154,28 +170,30 @@ function exportBackup() {
   return JSON.stringify({ app: 'slworkout-backup', v: 1, exported: new Date().toISOString(), data });
 }
 
+// Copy a readonly textarea's content: async clipboard API, else select+execCommand.
+async function copyFromTextarea(ta) {
+  const text = ta.value || ta.textContent;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      ta.select();
+      if (document.execCommand) document.execCommand('copy');
+    }
+    notify('הועתק ✓');
+  } catch { notify('העתקה נכשלה — סמן את הטקסט והעתק ידנית'); }
+}
+
 function openExport() {
   const ta = el('textarea', { class: 'io-text', readonly: true, text: exportBackup() });
   const dlg = systemDialog({
-    title: '💾 ייצוא נתונים',
+    title: iconLabel(ICONS.export, 'ייצוא נתונים', 'title-ico'),
     bodyNodes: [
       el('div', { class: 'set-hint', text: 'העתק את הטקסט ושמור אותו, או הדבק אותו בדפדפן/מכשיר אחר תחת "ייבוא נתונים".' }),
       ta,
     ],
     actions: [
-      { label: 'העתק 📋', kind: 'primary', onClick: async () => {
-        fx.tap();
-        const text = ta.value || ta.textContent;
-        try {
-          if (navigator.clipboard && navigator.clipboard.writeText) {
-            await navigator.clipboard.writeText(text);
-          } else {
-            ta.select();
-            if (document.execCommand) document.execCommand('copy');
-          }
-          notify('הועתק ✓');
-        } catch { notify('העתקה נכשלה — סמן את הטקסט והעתק ידנית'); }
-      } },
+      { label: 'העתק', icon: ICONS.copy, kind: 'primary', onClick: () => { fx.tap(); copyFromTextarea(ta); } },
       { label: 'סגור', kind: 'ghost', onClick: () => { fx.tap(); dlg.close(); } },
     ],
   });
@@ -184,7 +202,7 @@ function openExport() {
 function openImport() {
   const ta = el('textarea', { class: 'io-text', placeholder: 'הדבק כאן את טקסט הגיבוי…' });
   const dlg = systemDialog({
-    title: '📥 ייבוא נתונים',
+    title: iconLabel(ICONS.import, 'ייבוא נתונים', 'title-ico'),
     bodyNodes: [
       el('div', { class: 'set-hint', text: 'הדבק גיבוי שיוצא מהאפליקציה. השחזור מחליף את כל הנתונים בדפדפן הזה.' }),
       ta,
@@ -240,9 +258,10 @@ function tryImport(raw, importDlg) {
 }
 
 function openSettings() {
-  const backupRow = (label, desc, onClick) => {
+  // A row that opens a dialog instead of cycling a value (backup, reminder).
+  const openRow = (icon, label, desc, onClick) => {
     const row = el('button', { class: 'set-row', 'aria-label': label }, [
-      el('div', { class: 'set-top' }, [el('span', { class: 'set-label', text: label })]),
+      el('div', { class: 'set-top' }, [iconLabel(icon, label)]),
       el('div', { class: 'set-desc', text: desc }),
     ]);
     row.addEventListener('click', () => { fx.tap(); onClick(); });
@@ -250,23 +269,32 @@ function openSettings() {
   };
   const rows = [
     settingRow({
-      icon: '🎨', label: 'ערכת נושא', desc: 'מראה האפליקציה — כהה או בהיר.',
-      value: () => (currentTheme() === 'light' ? 'בהיר ☀️' : 'כהה 🌙'),
+      icon: () => (currentTheme() === 'light' ? ICONS.sun : ICONS.moon),
+      label: 'ערכת נושא', desc: 'מראה האפליקציה — כהה או בהיר.',
+      value: () => (currentTheme() === 'light' ? 'בהיר' : 'כהה'),
       cycle: () => toggleTheme(),
     }),
     settingRow({
-      icon: '🔊', label: 'צליל', desc: 'צלילי משוב בלחיצות, בספירת המנוחה ובסיום אימון.',
-      value: () => (isSoundOn() ? 'פעיל 🔊' : 'כבוי 🔇'),
+      icon: () => (isSoundOn() ? ICONS.speaker : ICONS.speakerOff),
+      label: 'צליל', desc: 'צלילי משוב בלחיצות, בספירת המנוחה ובסיום אימון.',
+      value: () => (isSoundOn() ? 'פעיל' : 'כבוי'),
       off: () => !isSoundOn(), cycle: () => toggleSound(),
     }),
     settingRow({
-      icon: '📳', label: 'רטט', desc: 'רטט משוב במכשירים תומכים (בעיקר טלפון).',
+      icon: ICONS.vibrate, label: 'רטט', desc: 'רטט משוב במכשירים תומכים (בעיקר טלפון).',
       value: () => (isHapticOn() ? 'פעיל' : 'כבוי'),
       off: () => !isHapticOn(), cycle: () => toggleHaptic(),
     }),
+    settingRow({
+      icon: () => (workoutMode() === 'circuit' ? ICONS.shoe : ICONS.muscle),
+      label: 'מצב אימון', desc: 'רגיל — כל הסטים של תרגיל ברצף. מעגלי — סבב של סט אחד מכל תרגיל.',
+      value: () => (workoutMode() === 'circuit' ? 'מעגלי' : 'רגיל'),
+      cycle: () => { state.workoutMode = workoutMode() === 'circuit' ? 'normal' : 'circuit'; store.save(state); },
+    }),
     intensityRow(),
-    backupRow('💾 ייצוא נתונים', 'העתקת כל הנתונים כטקסט — להעברה לדפדפן או מכשיר אחר.', openExport),
-    backupRow('📥 ייבוא נתונים', 'שחזור מגיבוי שיוצא בעבר. מחליף את הנתונים הקיימים.', openImport),
+    reminderRow(),
+    openRow(ICONS.export, 'ייצוא נתונים', 'העתקת כל הנתונים כטקסט — להעברה לדפדפן או מכשיר אחר.', openExport),
+    openRow(ICONS.import, 'ייבוא נתונים', 'שחזור מגיבוי שיוצא בעבר. מחליף את הנתונים הקיימים.', openImport),
   ];
   const dlg = systemDialog({
     title: 'הגדרות',
@@ -276,6 +304,85 @@ function openSettings() {
     ],
     actions: [{ label: 'סגור', kind: 'primary', onClick: () => { fx.tap(); dlg.close(); renderHome(); } }],
   });
+}
+
+// ---- Stretch reminder (Web Push, opened from Settings) ---------------------
+// js/push.js: the browser subscribes here; the reminder itself is sent by the
+// repo's GitHub Actions cron, so the owner pastes this device's subscription
+// into the PUSH_SUBSCRIPTIONS secret once. Quiet notification, 9:00 daily.
+
+const REMINDER_STATE = { on: 'פעיל', off: 'כבוי', blocked: 'חסום', unsupported: 'לא נתמך' };
+
+function reminderRow() {
+  const stateEl = el('span', { class: 'set-state', text: '…' });
+  const row = el('button', { class: 'set-row', 'aria-label': 'תזכורת מתיחות' }, [
+    el('div', { class: 'set-top' }, [iconLabel(ICONS.bell, 'תזכורת מתיחות'), stateEl]),
+    el('div', { class: 'set-desc', text: 'התראה שקטה כל בוקר ב-9:00 — זמן למתיחות.' }),
+  ]);
+  const refresh = () => push.status().then((s) => {
+    stateEl.textContent = REMINDER_STATE[s] || s;
+    row.classList.toggle('off', s !== 'on');
+  });
+  row.addEventListener('click', () => { fx.tap(); openReminder(refresh); });
+  refresh();
+  return row;
+}
+
+function openReminder(onChange) {
+  const box = el('div', { class: 'rem-box' });
+  const dlg = systemDialog({
+    title: iconLabel(ICONS.bell, 'תזכורת מתיחות', 'title-ico'),
+    bodyNodes: [box],
+    actions: [{ label: 'סגור', kind: 'primary', onClick: () => { fx.tap(); dlg.close(); if (onChange) onChange(); } }],
+  });
+  const hint = (text) => el('div', { class: 'set-hint', text });
+
+  // Re-rendered in place after subscribe/unsubscribe.
+  const render = async () => {
+    const s = await push.status();
+    clear(box);
+    if (s === 'unsupported') {
+      box.appendChild(hint('הדפדפן הזה לא תומך בהתראות. באייפון: הוסף את האפליקציה למסך הבית ופתח אותה משם. באנדרואיד ובמחשב: Chrome או Edge.'));
+    } else if (s === 'blocked') {
+      box.appendChild(hint('ההתראות חסומות לאתר הזה בדפדפן. אפשר אותן בהגדרות האתר ונסה שוב.'));
+    } else if (s === 'off') {
+      box.appendChild(hint('לאפליקציה אין שרת, אז את התזכורת שולח GitHub. ההפעלה יוצרת "מנוי" למכשיר הזה — טקסט שמעתיקים פעם אחת ל-Secret בשם PUSH_SUBSCRIPTIONS במאגר. משם תגיע התראה שקטה כל בוקר ב-9:00.'));
+      box.appendChild(el('div', { class: 'sys-actions' }, [
+        el('button', { class: 'btn btn-primary', text: 'הפעל תזכורת', onClick: async () => {
+          fx.tap();
+          try {
+            await push.subscribe();
+            notify('התזכורת הופעלה במכשיר הזה');
+          } catch (e) {
+            notify(e && e.message === 'denied' ? 'ההרשאה להתראות נדחתה' : 'ההרשמה נכשלה — נסה שוב');
+          }
+          render();
+        } }),
+      ]));
+    } else {
+      const sub = await push.getSubscription();
+      const ta = el('textarea', { class: 'io-text', readonly: true, text: push.subscriptionText(sub) });
+      box.appendChild(hint('המנוי של המכשיר הזה. העתק אותו ל-GitHub: Settings ← Secrets and variables ← Actions ← PUSH_SUBSCRIPTIONS. כמה מכשירים? רשימת JSON: [מנוי, מנוי].'));
+      box.appendChild(ta);
+      box.appendChild(el('div', { class: 'sys-actions' }, [
+        el('button', { class: 'btn btn-primary', 'aria-label': 'העתק מנוי', onClick: () => { fx.tap(); copyFromTextarea(ta); } }, [
+          el('span', { class: 'btn-ico', html: ICONS.copy }),
+          'העתק',
+        ]),
+        el('button', { class: 'btn btn-ghost', text: 'בדיקה', onClick: async () => {
+          fx.tap();
+          try { await push.showTest(); } catch { notify('לא ניתן להציג התראה'); }
+        } }),
+      ]));
+      box.appendChild(el('button', { class: 'link-btn', text: 'בטל תזכורת במכשיר הזה', onClick: async () => {
+        fx.tap();
+        await push.unsubscribe();
+        notify('התזכורת בוטלה במכשיר הזה');
+        render();
+      } }));
+    }
+  };
+  render();
 }
 
 // ---- Home screen -----------------------------------------------------------
@@ -289,6 +396,7 @@ function renderHome() {
   const readiness = challenge ? store.challengeReadiness(state, challenge) : null;
   const rounds = plan.blocks.reduce((m, b) => Math.max(m, b.sets), 0);
   const scaled = scaledPlan(plan, state.rampPercent); // single choke point for ramp-up scaling
+  const mode = workoutMode();
 
   // Top bar. RTL: first child sits on the physical RIGHT → workouts chip
   // top-right, settings top-left.
@@ -311,29 +419,24 @@ function renderHome() {
     el('div', { class: 'hero-label', text: 'האימון הבא' }),
     el('div', { class: 'hero-name', text: plan.name }),
     el('div', { class: 'hero-sub', text: `${plan.blocks.length} תרגילים · ${totalSets(plan)} סטים` }),
-    startMode === 'circuit'
-      ? el('div', { class: 'mode-note', text: `🔄 מצב מעגלי · ${rounds} סבבים` })
+    mode === 'circuit'
+      ? el('div', { class: 'mode-note' }, [el('span', { class: 'inline-ico', html: ICONS.shoe }), `מצב מעגלי · ${rounds} סבבים`])
       : null,
   ]);
 
   const startBtn = el('button', {
     class: 'btn btn-start', text: 'התחל אימון',
-    onClick: () => { unlock(); fx.start(); startWorkout(scaled, startMode); },
+    onClick: () => { unlock(); fx.start(); startWorkout(scaled, mode); },
   });
 
-  // Bottom action row: preview · mode toggle · challenge.
+  // Bottom action row: preview · stretching · challenge (workout mode is in Settings).
   const actionBtn = (icon, label, onClick, aria) => el('div', { class: 'action-item' }, [
     el('button', { class: 'action-btn', 'aria-label': aria || label, html: icon, onClick }),
     el('div', { class: 'action-label', text: label }),
   ]);
   const actions = el('div', { class: 'action-row' }, [
-    actionBtn(ICONS.spyglass, 'תצוגה מקדימה', () => { fx.tap(); renderPreview(scaled, startMode); }),
-    actionBtn(
-      startMode === 'circuit' ? ICONS.shoe : ICONS.muscle,
-      startMode === 'circuit' ? 'מצב מעגלי' : 'מצב רגיל',
-      () => { fx.tap(); startMode = startMode === 'circuit' ? 'normal' : 'circuit'; renderHome(); },
-      'החלף מצב אימון'
-    ),
+    actionBtn(ICONS.spyglass, 'תצוגה מקדימה', () => { fx.tap(); renderPreview(scaled, mode); }),
+    actionBtn(ICONS.stretch, 'מתיחות', () => { fx.tap(); renderStretchPre(); }),
     actionBtn(ICONS.swords, readiness ? `אתגר · ${readiness.percent}%` : 'אתגר', () => { fx.tap(); openChallenge(); }),
   ]);
 
@@ -345,6 +448,7 @@ function renderHome() {
 // Stats dialog (opened from the top-right workouts chip).
 function openStats() {
   const s = store.stats(state);
+  const st = store.stretchStats(state);
   const dlg = systemDialog({
     title: 'נתונים',
     bodyNodes: [
@@ -356,6 +460,10 @@ function openStats() {
         statCell('רצף שיא', `${s.longestStreak}`),
         statCell('סטים שהושלמו', s.totalSets),
         statCell('השבוע', `${s.weekCount} / ${store.WEEKLY_GOAL}`),
+        // Stretching runs — logged separately, never counted as workouts.
+        statCell('מתיחות', st.total),
+        statCell('מתיחות השבוע', st.weekCount),
+        statCell('זמן מתיחות', store.fmtDuration(st.totalTimeSec)),
       ]),
     ],
     actions: [{ label: 'סגור', kind: 'primary', onClick: () => { fx.tap(); dlg.close(); } }],
@@ -393,7 +501,7 @@ function renderPreview(plan, mode = 'normal') {
   });
 
   const banner = mode === 'circuit'
-    ? el('div', { class: 'mode-note', text: '🔄 מצב מעגלי — סבב בין התרגילים' })
+    ? el('div', { class: 'mode-note' }, [el('span', { class: 'inline-ico', html: ICONS.shoe }), 'מצב מעגלי — סבב בין התרגילים'])
     : null;
   const win = systemWindow('👁 תצוגה מקדימה', [banner, el('div', { class: 'pv-list' }, blocks)]);
 
@@ -608,16 +716,27 @@ function youtubeId(url) {
   return m ? m[1] : null;
 }
 
+// Start offset from a `t=` / `start=` param (10, 10s, 1m5s…) — 0 when absent.
+// The stretch routine's links all point into one demo clip at different times.
+function youtubeStart(url) {
+  const m = /[?&#](?:t|start)=([0-9hms]+)/.exec(url || '');
+  if (!m) return 0;
+  if (/^\d+$/.test(m[1])) return Number(m[1]);
+  const p = /^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/.exec(m[1]);
+  return p ? Number(p[1] || 0) * 3600 + Number(p[2] || 0) * 60 + Number(p[3] || 0) : 0;
+}
+
 function openVideo(name, url) {
   const id = youtubeId(url);
   if (!id) { // unparseable URL — fall back to the old external-tab behavior
     if (typeof window !== 'undefined' && window.open) window.open(url, '_blank', 'noopener');
     return;
   }
+  const start = youtubeStart(url);
   const frame = el('div', {
     class: 'video-embed',
     html:
-      `<iframe src="https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0&playsinline=1" ` +
+      `<iframe src="https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0&playsinline=1${start ? `&start=${start}` : ''}" ` +
       `title="סרטון הדרכה" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" ` +
       `allowfullscreen></iframe>`,
   });
@@ -636,16 +755,19 @@ function openVideo(name, url) {
   });
 }
 
-// Small button that opens an exercise's technique video (from the PDF) in the
-// in-app player; null when no video is mapped.
-function videoLink(name, cls = 'video-link') {
-  const url = videoFor(name);
+// Small button that opens a video in the in-app player; null when no url.
+function videoBtn(name, url, cls = 'video-link') {
   if (!url) return null;
   return el('button', {
     class: cls, type: 'button',
     'aria-label': `סרטון הדרכה — ${name}`, html: ICONS.play,
     onClick: () => { fx.tap(); openVideo(name, url); },
   });
+}
+
+// Same, for a workout exercise's technique video (from the PDF's VIDEOS map).
+function videoLink(name, cls = 'video-link') {
+  return videoBtn(name, videoFor(name), cls);
 }
 
 function statCell(label, value) {
@@ -889,6 +1011,31 @@ function completeStep(session, block, controls, done) {
 const RING_R = 80;
 const RING_C = 2 * Math.PI * RING_R;
 
+// Countdown ring (SVG sweep + big clock), shared by the rest screen and the
+// stretch holds. set(rem, total) updates clock + sweep; urgent() turns it gold.
+function makeRing(text) {
+  const clock = el('div', { class: 'rest-clock', text });
+  const svg = el('div', {
+    class: 'ring-svg',
+    html:
+      `<svg viewBox="0 0 180 180" width="180" height="180">` +
+      `<circle class="ring-bg" cx="90" cy="90" r="${RING_R}"></circle>` +
+      `<circle class="ring-fg" cx="90" cy="90" r="${RING_R}" transform="rotate(-90 90 90)" ` +
+      `stroke-dasharray="${RING_C}" stroke-dashoffset="0"></circle>` +
+      `</svg>`,
+  });
+  const ring = el('div', { class: 'rest-ring' }, [svg, clock]);
+  const fg = ring.querySelector ? ring.querySelector('.ring-fg') : null;
+  return {
+    el: ring,
+    set(rem, total) {
+      clock.textContent = fmtClock(rem);
+      if (fg) fg.style.strokeDashoffset = String(RING_C * (1 - rem / total));
+    },
+    urgent() { ring.classList.add('urgent'); },
+  };
+}
+
 function renderRest(session, restSec) {
   clear(app);
   const next = session.steps[session.stepIndex + 1];
@@ -901,18 +1048,7 @@ function renderRest(session, restSec) {
     ]),
   ]);
 
-  const clock = el('div', { class: 'rest-clock', text: fmtClock(restSec) });
-  const svg = el('div', {
-    class: 'ring-svg',
-    html:
-      `<svg viewBox="0 0 180 180" width="180" height="180">` +
-      `<circle class="ring-bg" cx="90" cy="90" r="${RING_R}"></circle>` +
-      `<circle class="ring-fg" cx="90" cy="90" r="${RING_R}" transform="rotate(-90 90 90)" ` +
-      `stroke-dasharray="${RING_C}" stroke-dashoffset="0"></circle>` +
-      `</svg>`,
-  });
-  const ring = el('div', { class: 'rest-ring' }, [svg, clock]);
-  const ringFg = ring.querySelector ? ring.querySelector('.ring-fg') : null;
+  const ring = makeRing(fmtClock(restSec));
 
   let handle;
   const proceed = () => {
@@ -922,7 +1058,7 @@ function renderRest(session, restSec) {
   };
 
   const win = systemWindow('⏳ מנוחה', [
-    ring,
+    ring.el,
     el('div', { class: 'rest-sub', text: `מנוחה: ${restText(restSec)}` }),
     nextLine,
     el('div', { class: 'sys-actions' }, [
@@ -941,10 +1077,9 @@ function renderRest(session, restSec) {
   handle = startTimer(
     restSec,
     (rem) => {
-      clock.textContent = fmtClock(rem);
-      if (ringFg) ringFg.style.strokeDashoffset = String(RING_C * (1 - rem / restSec));
+      ring.set(rem, restSec);
       if (rem > 0 && rem <= 3) {
-        ring.classList.add('urgent');
+        ring.urgent();
         fx.tick();
       }
     },
@@ -1013,13 +1148,151 @@ function confirmAbort(session) {
   });
 }
 
+// ---- Stretching routine ----------------------------------------------------
+// Guided run of STRETCH_ROUTINE (js/stretches.js): each hold is started by a
+// tap (time to get into position), counted down on the ring, then auto-advances.
+// Completed runs go to state.stretchLog — real data (date, duration, holds),
+// but NOT workouts: streaks, the weekly goal and readiness ignore them.
+
+function stretchTitle() {
+  return iconLabel(ICONS.stretch, STRETCH_ROUTINE.name, 'title-ico');
+}
+
+// Equal-cell progress (one cell per hold), same look as the workout seg-track.
+function stepsBar(total, completed) {
+  const cells = Array.from({ length: total }, (_, i) =>
+    el('div', { class: 'seg' }, [el('div', { class: 'seg-fill', style: `width:${i < completed ? 100 : 0}%` })])
+  );
+  return el('div', { class: 'seg-track', 'aria-label': `התקדמות ${completed}/${total}` }, cells);
+}
+
+function renderStretchPre() {
+  clear(app);
+  requestWakeLock();
+  const r = STRETCH_ROUTINE;
+  const rows = r.steps.map((s, i) =>
+    el('div', { class: 'st-row' }, [
+      el('span', { class: 'pv-block-no', text: String(i + 1) }),
+      el('span', { class: 'st-name', text: stepLabel(s) }),
+      el('span', { class: 'st-sec', text: `${s.sec} שנ'` }),
+      videoBtn(stepLabel(s), s.video, 'video-link pv-video'),
+    ])
+  );
+  const win = systemWindow(stretchTitle(), [
+    el('div', { class: 'chal-sub', text: `${r.steps.length} החזקות · ${r.holdSec} שניות כל אחת · כ-${Math.ceil(stretchTotalSec(r) / 60)} דקות` }),
+    el('div', { class: 'st-list' }, rows),
+    el('button', {
+      class: 'btn btn-ghost btn-wide btn-vid', type: 'button', 'aria-label': 'סרטון מלא',
+      onClick: () => { fx.tap(); openVideo(r.name, r.video); },
+    }, [el('span', { class: 'btn-ico', html: ICONS.play }), 'סרטון מלא']),
+    el('div', { class: 'sys-actions' }, [
+      el('button', { class: 'btn btn-primary', text: 'התחל ▶', onClick: () => {
+        unlock(); fx.start();
+        renderStretchStep(r, 0, { startedAt: Date.now(), done: 0 });
+      } }),
+      el('button', { class: 'btn btn-ghost', text: 'חזרה', onClick: () => { fx.tap(); renderHome(); } }),
+    ]),
+  ], { class: 'sys-dialog' });
+  app.appendChild(el('div', { class: 'view view-stretch' }, [win]));
+}
+
+function renderStretchStep(routine, idx, run) {
+  clear(app);
+  requestWakeLock(); // no-op if held; recovers a lock lost mid-run
+  const step = routine.steps[idx];
+  const total = routine.steps.length;
+  let handle = null;
+
+  const head = el('div', { class: 'session-head' }, [
+    el('div', { class: 'session-plan', text: routine.name }),
+    el('div', { class: 'session-progress', text: `${idx + 1} / ${total}` }),
+  ]);
+
+  const advance = () => {
+    if (handle) { handle.stop(); handle = null; }
+    if (idx + 1 < total) renderStretchStep(routine, idx + 1, run);
+    else finishStretch(routine, run);
+  };
+
+  const ring = makeRing(fmtClock(step.sec));
+  // One button: idle → start the hold; running → skip ahead (not counted as held).
+  const goBtn = el('button', { class: 'btn btn-primary', text: 'התחל ▶' });
+  goBtn.addEventListener('click', () => {
+    if (handle) { fx.tap(); advance(); return; }
+    fx.start();
+    goBtn.textContent = 'דלג ⏭';
+    goBtn.classList.remove('btn-primary');
+    goBtn.classList.add('btn-ghost');
+    handle = startTimer(
+      step.sec,
+      (rem) => { ring.set(rem, step.sec); if (rem > 0 && rem <= 3) { ring.urgent(); fx.tick(); } },
+      () => { handle = null; run.done += 1; fx.restEnd(); advance(); }
+    );
+  });
+
+  const win = systemWindow(stretchTitle(), [
+    el('div', { class: 'chal-move-row' }, [
+      el('div', { class: 'chal-move', text: step.name }),
+      videoBtn(step.name, step.video),
+    ]),
+    step.side ? el('div', { class: 'st-side', text: `רגל ${step.side}` }) : null,
+    el('div', { class: 'chal-req', text: `החזק ${step.sec} שניות` }),
+    ring.el,
+    el('div', { class: 'sys-actions' }, [goBtn]),
+  ], { class: 'sys-dialog' });
+  const exit = el('button', { class: 'link-btn', text: 'יציאה', onClick: () => { if (handle) handle.stop(); fx.tap(); renderHome(); } });
+  app.appendChild(el('div', { class: 'view view-stretch' }, [head, stepsBar(total, idx), win, exit]));
+}
+
+function finishStretch(routine, run) {
+  const durationSec = Math.round((Date.now() - run.startedAt) / 1000);
+  const total = routine.steps.length;
+  if (run.done > 0) { // nothing held → nothing to log
+    state.stretchLog.push({ dateISO: new Date().toISOString(), durationSec, holds: run.done, total });
+    store.save(state);
+  }
+  releaseWakeLock();
+  fx.finish();
+  const dlg = systemDialog({
+    title: 'סיכום מתיחות',
+    bodyNodes: [
+      el('div', { class: 'summary-line big', text: 'מתיחות הושלמו!' }),
+      el('div', { class: 'summary-grid' }, [
+        statCell('החזקות', `${run.done}/${total}`),
+        statCell('זמן', store.fmtDuration(durationSec)),
+      ]),
+    ],
+    actions: [{ label: 'סגור', kind: 'primary', onClick: () => { fx.tap(); dlg.close(); renderHome(); } }],
+  });
+}
+
 // ---- Boot ------------------------------------------------------------------
 
 applyTheme(loadTheme());
-renderHome();
+
+// Deep links from the reminder notification: ./?open=stretch (the routine) and
+// ./?open=reminder (re-copy the subscription from Settings). The query is
+// stripped right away so a reload / PWA restart lands on home as usual.
+function boot() {
+  let open = null;
+  try {
+    open = new URLSearchParams(location.search).get('open');
+    if (open && history.replaceState) history.replaceState(null, '', location.pathname);
+  } catch { /* ignore */ }
+  if (open === 'stretch') { renderStretchPre(); return; }
+  renderHome();
+  if (open === 'reminder') openSettings();
+}
+boot();
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
+  });
+  // Notification tapped while a window is already open: sw.js focuses it and
+  // asks for the routine — honoured only from home, never mid-session.
+  navigator.serviceWorker.addEventListener('message', (e) => {
+    const d = e && e.data;
+    if (d && d.type === 'open' && d.view === 'stretch' && app.querySelector('.view-home')) renderStretchPre();
   });
 }

@@ -34,7 +34,8 @@ export function systemWindow(title, children, opts = {}) {
 }
 
 // Full-screen modal dialog styled as a System notification.
-// actions: [{ label, kind: 'primary'|'ghost', onClick }]
+// title: string or a node (e.g. an icon + text span).
+// actions: [{ label, kind: 'primary'|'ghost', onClick, icon? (inline SVG html) }]
 export function systemDialog({ title = 'הודעת מערכת', bodyNodes = [], actions = [], dismissible = false }) {
   const overlay = el('div', { class: 'sys-overlay' });
   const actionRow = el(
@@ -43,11 +44,13 @@ export function systemDialog({ title = 'הודעת מערכת', bodyNodes = [], 
     actions.map((a) =>
       el('button', {
         class: `btn ${a.kind === 'ghost' ? 'btn-ghost' : 'btn-primary'}`,
-        text: a.label,
         onClick: () => {
           if (a.onClick) a.onClick();
         },
-      })
+      }, [
+        a.icon ? el('span', { class: 'btn-ico', html: a.icon }) : null,
+        a.label,
+      ])
     )
   );
 
