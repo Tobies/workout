@@ -41,6 +41,26 @@ export const CHALLENGES = [
       { kind: 'hold', label: 'אלסיט', sec: 10, source: 'אלסיט', requirement: 10 },
     ],
   },
+  {
+    id: '3.5',
+    name: 'אתגר מעבר 3.5#',
+    video: 'https://www.youtube.com/watch?v=L8koHz9cALI', // full-sequence demo from the PDF
+    conditions: [
+      'טכניקה נקייה וטווח תנועה מלא',
+      'הכול ברצף ללא מנוחה ארוכה',
+      'לצלם סרטון ברור ללא קאטים',
+      'מומלץ יומיים מנוחה לפני',
+    ],
+    sequence: [
+      { kind: 'reps', label: 'אייסקרים מייקרס', count: 3, source: 'אייסקרים מייקרס', requirement: 3 },
+      { kind: 'reps', label: 'מתח אלסיט חזה למתח (פרונציה)', count: 5, source: 'מתח אלסיט בפרונציה', requirement: 5 },
+      { kind: 'reps', label: 'שכיבות סמיכה בעמידת ידיים (גב לקיר)', count: 8, source: 'שכיבות סמיכה בעמידת ידיים על הקיר', requirement: 8 },
+      { kind: 'reps', label: 'מקבילים על מתח', count: 10, source: 'מקבילים על מתח', requirement: 10 },
+      // "מתח רגיל" has no exact match in the 3.5 plans; מתח רחב (wide) is the
+      // conservative proxy — clearing 10 wide pull-ups covers 10 regular ones.
+      { kind: 'reps', label: 'מתח רגיל', count: 10, source: 'מתח רחב', requirement: 10 },
+    ],
+  },
 ];
 
 export function getChallenge(id) {

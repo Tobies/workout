@@ -452,7 +452,9 @@ function openStats() {
   const dlg = systemDialog({
     title: 'נתונים',
     bodyNodes: [
-      el('div', { class: 'stage-line', text: 'שלב בסיס · רמה 3' }),
+      // Level = the challenge currently being trained for (falls back to the last
+      // one passed), so this line follows the program data instead of drifting.
+      el('div', { class: 'stage-line', text: `שלב בסיס · רמה ${state.currentChallenge || state.challengesPassed[state.challengesPassed.length - 1] || '3.5'}` }),
       el('div', { class: 'stat-grid' }, [
         statCell('אימונים', s.totalWorkouts),
         statCell('זמן אימון', store.fmtDuration(s.totalTimeSec)),

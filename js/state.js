@@ -19,7 +19,7 @@ export const nextRampDisplay = (d) => RAMP_DISPLAYS[(RAMP_DISPLAYS.indexOf(d) + 
 const DEFAULT_STATE = () => ({
   nextPlan: 'A',
   history: [], // { dateISO, plan, durationSec, sets:[{ exercise, target, targetMax|null, actual|null, done }] }
-  currentChallenge: '3.0',
+  currentChallenge: '3.5',
   challengesPassed: [],
   challengeNotified: false,
   rampPercent: 75,      // intensity %, [50,100]; 100 = full plan, <100 scales reps/holds down
@@ -34,13 +34,21 @@ export function load() {
     if (!raw) return DEFAULT_STATE();
     const s = JSON.parse(raw);
     const st = { ...DEFAULT_STATE(), ...s };
-    // Level-3 migration: 2.5 was passed (in-app → currentChallenge became null
-    // because no next level existed yet; or offline → still '2.5'). Advance to 3.0.
-    if ((st.currentChallenge === '2.5' || st.currentChallenge == null) && !st.challengesPassed.includes('3.0')) {
-      if (!st.challengesPassed.includes('2.5')) st.challengesPassed.push('2.5');
-      st.currentChallenge = '3.0';
+    // Level migrations, oldest → newest. A level is passed while the app doesn't
+    // know the next one yet: in-app pass → currentChallenge became null (no next
+    // id existed), offline pass → still the old id. Each step is guarded by the
+    // target id not already being passed, so a finished level is never resurrected.
+    // Chaining them is intentional: a save left on an old level lands on the level
+    // the owner is actually training now.
+    const levelUp = (from, to) => {
+      if (st.challengesPassed.includes(to)) return;
+      if (st.currentChallenge !== from && st.currentChallenge != null) return;
+      if (!st.challengesPassed.includes(from)) st.challengesPassed.push(from);
+      st.currentChallenge = to;
       st.challengeNotified = false;
-    }
+    };
+    levelUp('2.5', '3.0'); // level-3 migration (2026-08)
+    levelUp('3.0', '3.5'); // level-3.5 migration (2026-09)
     if (st.workoutMode !== 'circuit') st.workoutMode = 'normal';
     if (!Array.isArray(st.stretchLog)) st.stretchLog = [];
     return st;

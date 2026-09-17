@@ -107,81 +107,73 @@ const WARMUP = 'חימום פלג גוף עליון';
 // challenge `source`). Challenge steps look up by their `source` name too.
 export const VIDEOS = {
   'חימום פלג גוף עליון': 'https://www.youtube.com/watch?v=El-gmBoU8dg',
-  'הכנה לעמידת ידיים עם קיר': 'https://www.youtube.com/watch?v=2nIr1CDYvMo',
+  // אימון A
   'שכיבות סמיכה בעמידת ידיים על הקיר': 'https://www.youtube.com/watch?v=2kdXPm-oezE',
-  'מתח אלסיט סופינציה שלילי ואיטי': 'https://www.youtube.com/watch?v=UqUbVbHaG8s',
-  'פול אובר': 'https://www.youtube.com/watch?v=9Mt1KQZmuYc',
-  'הרמות באק לבר בטאק': 'https://www.youtube.com/watch?v=cZE-qUIwEAo',
-  'הרמות פרונט לבר בטאק': 'https://www.youtube.com/watch?v=7jAgDIyTkdo',
+  'מתח מתפרץ עד החזה': 'https://www.youtube.com/watch?v=lrhNcribv_4',
+  'אייסקרים מייקרס': 'https://www.youtube.com/watch?v=xPgSoYaxg_4',
+  "השענות לפלאנצ'": 'https://www.youtube.com/watch?v=3Qxpo7PA70o',
+  'הרמות דרגון פלאג': 'https://www.youtube.com/watch?v=YLK8faFw77Q',
   'שכיבות סמיכה עם השענות קדימה': 'https://www.youtube.com/watch?v=tAGH8JPK-jQ',
-  'מתח': 'https://www.youtube.com/watch?v=_WnQmTe64YQ',
-  "שכיבות סמיכה ארצ'ר (כל יד)": 'https://www.youtube.com/watch?v=6W73J5QRsGo',
-  'מתח אוסטרלי בסופינציה': 'https://www.youtube.com/watch?v=be3dXmRsXBE',
-  'חצי עליות כוח על טבעות (בונוס)': 'https://www.youtube.com/watch?v=toM4F2Uci-A',
-  'אלסיט': 'https://www.youtube.com/watch?v=-TC-vpseOrU',
-  'סקין דה קאט': 'https://www.youtube.com/watch?v=pYk-kHnhKes',
-  'מתח אלסיט (סופינציה)': 'https://www.youtube.com/watch?v=hBs6yIFLMpQ',
-  'מתח סופינציה': 'https://www.youtube.com/watch?v=e3zAvbuHhhc',
-  'מקבילים רחבים על מתח': 'https://www.youtube.com/watch?v=FbfYJZIwWFI',
-  'מתח אוסטרלי ביד אחת': 'https://www.youtube.com/watch?v=s7NG4ezYaiw',
-  'שכיבות סמיכה יהלום': 'https://www.youtube.com/watch?v=DMte40SYGXg',
+  'מתח רחב': 'https://www.youtube.com/watch?v=M2lCIN3m1RY',
+  'מקבילים על מתח': 'https://www.youtube.com/watch?v=yxfd4ni08co',
+  'אל סיט על טבעות': 'https://www.youtube.com/watch?v=CZp5TUMmuLU',
+  // אימון B
+  'מתח אלסיט בפרונציה': 'https://www.youtube.com/watch?v=mIjoSbCWJI8',
+  'מתח צמוד': 'https://www.youtube.com/watch?v=GRFvlMRzPvU',
+  'מקבילים עם רגליים בטאק': 'https://www.youtube.com/watch?v=AJZLYyLaPOU',
+  'מתח סופנציה': 'https://www.youtube.com/watch?v=e3zAvbuHhhc',
+  'פשיטות מרפקים': 'https://www.youtube.com/watch?v=D1qCWacZ4lY',
+  'הרמות רגליים על מקבילים': 'https://www.youtube.com/watch?v=5Ge69gmRWro',
 };
 
 export const videoFor = (name) => VIDEOS[name] || null;
 
-// שלב הבסיס | רמה 3.0 — decoded from the level-3 program PDF.
+// שלב הבסיס | רמה 3.5 — decoded from the level-3.5 program PDF.
 export const PLAN_A = {
   id: 'A',
   name: 'אימון A',
   warmup: WARMUP,
   blocks: [
-    // Warmup: video-guided routines (upper-body warmup + handstand wall prep).
+    // Warmup: the video-guided upper-body routine (no prescribed number, no rest).
     {
-      kind: 'superset', sets: 1, restSec: 0,
-      exercises: [
-        { name: 'חימום פלג גוף עליון', target: routine() },
-        { name: 'הכנה לעמידת ידיים עם קיר', target: routine() },
-      ],
+      kind: 'single', sets: 1, restSec: 0,
+      exercises: [{ name: 'חימום פלג גוף עליון', target: routine() }],
     },
     {
-      kind: 'single', sets: 4, restSec: 120,
-      exercises: [{ name: 'שכיבות סמיכה בעמידת ידיים על הקיר', target: range(2, 4) }],
-    },
-    {
-      // "כמה שיותר לאט בירידה"
-      kind: 'single', sets: 4, restSec: 120,
-      exercises: [{ name: 'מתח אלסיט סופינציה שלילי ואיטי', target: range(1, 3) }],
-    },
-    {
-      // "1-3 ניסיונות"
       kind: 'single', sets: 3, restSec: 120,
-      exercises: [{ name: 'פול אובר', target: range(1, 3) }],
+      exercises: [{ name: 'שכיבות סמיכה בעמידת ידיים על הקיר', target: range(5, 8) }],
     },
     {
+      kind: 'single', sets: 4, restSec: 120,
+      exercises: [{ name: 'מתח מתפרץ עד החזה', target: range(3, 5) }],
+    },
+    {
+      kind: 'single', sets: 5, restSec: 90,
+      exercises: [{ name: 'אייסקרים מייקרס', target: range(2, 4) }],
+    },
+    {
+      // PDF reps line: "פלאנצ' לין: 10-15 שניות" / "דרגון: מקסימום עד 10"
       kind: 'superset', sets: 3, restSec: 90,
       exercises: [
-        { name: 'הרמות באק לבר בטאק', target: range(3, 5) },
-        { name: 'הרמות פרונט לבר בטאק', target: range(3, 5) },
+        { name: "השענות לפלאנצ'", target: time(10, 15) },
+        { name: 'הרמות דרגון פלאג', target: maxCap(10) },
       ],
     },
     {
-      kind: 'superset', sets: 3, restSec: 120,
+      kind: 'superset', sets: 4, restSec: 120,
       exercises: [
         { name: 'שכיבות סמיכה עם השענות קדימה', target: range(8, 12) },
-        { name: 'מתח', target: range(8, 12) },
+        { name: 'מתח רחב', target: range(8, 12) },
       ],
     },
     {
-      kind: 'superset', sets: 3, restSec: 120,
-      exercises: [
-        { name: "שכיבות סמיכה ארצ'ר (כל יד)", target: fixed(10) },
-        { name: 'מתח אוסטרלי בסופינציה', target: max() },
-      ],
+      kind: 'single', sets: 3, restSec: 120,
+      exercises: [{ name: 'מקבילים על מתח', target: maxCap(20) }],
     },
     {
-      // "תרגיל בונוס" — rest not specified in the PDF, 120s assumed.
+      // "תרגיל בונוס"
       kind: 'single', sets: 2, restSec: 120,
-      exercises: [{ name: 'חצי עליות כוח על טבעות (בונוס)', target: max() }],
+      exercises: [{ name: 'אל סיט על טבעות', target: max() }],
     },
   ],
 };
@@ -196,39 +188,37 @@ export const PLAN_B = {
       exercises: [{ name: 'חימום פלג גוף עליון', target: routine() }],
     },
     {
-      kind: 'single', sets: 4, restSec: 120,
-      exercises: [{ name: 'פול אובר', target: range(1, 3) }],
+      // "מקסימום נקי"
+      kind: 'single', sets: 2, restSec: 120,
+      exercises: [{ name: 'אייסקרים מייקרס', target: max() }],
     },
     {
-      kind: 'single', sets: 3, restSec: 180,
-      exercises: [{ name: 'שכיבות סמיכה בעמידת ידיים על הקיר', target: range(3, 5) }],
-    },
-    {
-      // PDF rest: "2-3 דקות" — 150s midpoint.
-      kind: 'superset', sets: 2, restSec: 150,
-      exercises: [
-        { name: 'אלסיט', target: time(15) },
-        { name: 'סקין דה קאט', target: range(4, 6) },
-      ],
+      kind: 'single', sets: 2, restSec: 180,
+      exercises: [{ name: 'שכיבות סמיכה בעמידת ידיים על הקיר', target: max() }],
     },
     {
       // "מקסימום נקי"
       kind: 'single', sets: 3, restSec: 180,
-      exercises: [{ name: 'מתח אלסיט (סופינציה)', target: max() }],
+      exercises: [{ name: 'מתח אלסיט בפרונציה', target: max() }],
     },
     {
-      kind: 'superset', sets: 3, restSec: 120,
+      kind: 'superset', sets: 4, restSec: 120,
       exercises: [
-        { name: 'מתח סופינציה', target: range(8, 12) },
-        { name: 'מקבילים רחבים על מתח', target: range(8, 12) },
+        { name: 'מתח צמוד', target: range(8, 12) },
+        { name: 'מקבילים עם רגליים בטאק', target: range(8, 12) },
       ],
     },
     {
+      // PDF reps line: "מתח: 8-12" / "פשיטות: מקסימום עד 20"
       kind: 'superset', sets: 3, restSec: 120,
       exercises: [
-        { name: 'מתח אוסטרלי ביד אחת', target: range(8, 12) },
-        { name: 'שכיבות סמיכה יהלום', target: maxCap(25) },
+        { name: 'מתח סופנציה', target: range(8, 12) },
+        { name: 'פשיטות מרפקים', target: maxCap(20) },
       ],
+    },
+    {
+      kind: 'single', sets: 3, restSec: 180,
+      exercises: [{ name: 'הרמות רגליים על מקבילים', target: max() }],
     },
   ],
 };

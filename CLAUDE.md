@@ -7,7 +7,9 @@ Project memory + operating manual. Read this first when resuming work.
 Personal calisthenics workout-tracking **PWA**, hosted on **GitHub Pages**, built for Roei
 (owner). Tracks his coach's program (the "שלב הבסיס" / Base Stage calisthenics plan). Two
 alternating upper-body workouts **Plan A** / **Plan B**, plus a per-level **rank-up challenge**
-("אתגר מעבר") used to advance to the next level. **Current level: 3.0** (2.5 passed 2026-08).
+("אתגר מעבר") used to advance to the next level. **Current level: 3.5** (3.0 passed 2026-09, 2.5
+passed 2026-08). The level PDF lives in the project root and is **gitignored** (`*.pdf`) — it's
+the coach's copyrighted material and this repo is served publicly by GitHub Pages.
 Since 2026-09 also a daily **stretching routine** (owner's own list, not from the coach's PDF) with
 a **9:00 silent push reminder** sent by a GitHub Actions cron (see "Stretch reminder").
 
@@ -142,7 +144,7 @@ DEFAULT_STATE = {
   nextPlan: 'A',                 // flips A↔B after each completed workout
   history: [ { dateISO, plan:'A'|'B', durationSec,
                sets:[ { exercise, target, targetMax|null, actual|null, done } ] } ],
-  currentChallenge: '3.0', challengesPassed: [], challengeNotified: false,
+  currentChallenge: '3.5', challengesPassed: [], challengeNotified: false,
   rampPercent: 75,               // intensity %, [50,100]; 100 = full plan (no scaling)
   rampDisplay: 'full',           // LEGACY (old home widget display) — unused, kept for old saves
   workoutMode: 'normal',         // 'normal' | 'circuit' — persisted Settings row (was a per-start home toggle)
@@ -151,10 +153,12 @@ DEFAULT_STATE = {
 ```
 `load()` spreads DEFAULT over saved (so old saves missing new keys are fine; leftover removed keys
 like `xp` are harmless), normalizes `workoutMode` (anything but `'circuit'` → `'normal'`) and
-`stretchLog` (non-array → `[]`). It also runs the **level-3 migration**: a save with `currentChallenge`
-`'2.5'` or `null` (passing 2.5 in-app pre-level-3 set it null — no next id existed) advances to
-`'3.0'` and marks `'2.5'` passed, guarded by `challengesPassed.includes('3.0')` so a finished 3.0
-is never resurrected. Ramp helpers: `clampRamp(p)`→[`RAMP_MIN=50`,`RAMP_MAX=100`], `RAMP_STEP=5`,
+`stretchLog` (non-array → `[]`). It also runs the **level migrations** — a local `levelUp(from,to)`
+called once per level, oldest → newest (`'2.5'→'3.0'`, `'3.0'→'3.5'`): a save whose
+`currentChallenge` is `from` (passed offline) **or `null`** (passed in-app while no next id existed
+yet) advances to `to` and marks `from` passed, guarded by `challengesPassed.includes(to)` so a
+finished level is never resurrected. Chaining is intentional — an ancient save walks up to the level
+the owner actually trains now. **Adding a level = one more `levelUp(...)` line.** Ramp helpers: `clampRamp(p)`→[`RAMP_MIN=50`,`RAMP_MAX=100`], `RAMP_STEP=5`,
 `nextRampDisplay(d)` (cycles full→readonly→hidden).
 
 Real stats (`stats(state)`): totalWorkouts, totalTimeSec, totalSets, streak/longestStreak
@@ -185,14 +189,19 @@ CHALLENGES = [{ id, name, conditions:[...], sequence:[
 `source` MUST exactly match an exercise `name` in `workouts.js` or readiness can't find data.
 `hold` items: `requirement` is in the **source's units** — a reps proxy when the source is a reps
 exercise (2.5 dragon flag ← negative reps), plain seconds when the source is a `time()` hold
-(3.0 אלסיט ← `time(15)`). Old challenge entries stay in `CHALLENGES` so `nextChallengeId` chains.
+(3.0 אלסיט ← `time(15)`). 3.5 has no `hold` items — all five moves are `reps`. Old challenge
+entries stay in `CHALLENGES` so `nextChallengeId` chains.
+**Proxy sources:** when a challenge move has no exact-name twin in the plans, pick the *harder*
+plan variant and say so in a comment — 3.5's "מתח רגיל" reads capacity from `'מתח רחב'` (clearing 10
+wide pull-ups covers 10 regular ones). Never invent a `source` string that no plan uses.
 Helpers: `getChallenge(id)`, `nextChallengeId(id)`, `reqText(item)`.
 
 ## UI flow — `app.js`
 
 - **Home** (`renderHome`, reskinned 2026-08 after a reference mock): top bar = **⚙ settings**
   (physical top-left) + **🏋 workouts-count chip** (top-right; RTL → chip is the FIRST DOM child) →
-  `openStats()` dialog (stage line `שלב בסיס · רמה 3` + real stat grid, incl. weekly count and
+  `openStats()` dialog (stage line `שלב בסיס · רמה <state.currentChallenge>` — derived, falls back
+  to the last passed id, so it follows the data instead of drifting — + real stat grid, incl. weekly count and
   the 3 stretch cells) · **hero** = next workout name + exercises/sets + circuit note (shoe icon +
   "מצב מעגלי · N סבבים", only when `workoutMode==='circuit'`; no progress bar on home — owner
   removed it) · pill **התחל אימון** (pencil-hatched, width matches the action row) · bottom
@@ -362,7 +371,7 @@ So the **sender is a GitHub Actions cron** in this repo; the app only creates th
 ## PWA / deploy
 
 - `sw.js`: list every shipped file in `SHELL`; **bump `CACHE` ('slworkout-vN')** whenever any
-  cached file changes, or users get stale assets (2026-09: **v45**, added `stretches.js`,
+  cached file changes, or users get stale assets (2026-09: **v46**, level-3.5 program data; v45 added `stretches.js`,
   `push.js`, the two PNGs). Add new `js/*.js` to `SHELL`. The fetch handler **ignores cross-origin
   requests** entirely (early return) — required so the in-app YouTube embed iframe is never
   answered with the cached `index.html` offline; only same-origin GETs are cache-first, matched
@@ -380,7 +389,9 @@ So the **sender is a GitHub Actions cron** in this repo; the app only creates th
 
 Edge/Chrome binaries are absent in this environment; PDFs/headless rendering are limited. Verify by:
 1. `node --check` every changed `.js`.
-2. **DOM-stub simulation in Node** — stub `document`/`window`/`localStorage`/`requestAnimationFrame`,
+2. **DOM-stub simulation in Node** (Node 24 here: `globalThis.navigator` is a **read-only getter** —
+   install the stub with `Object.defineProperty(globalThis,'navigator',{value:nav,configurable:true})`,
+   a plain assignment throws `Cannot set property navigator`) — stub `document`/`window`/`localStorage`/`requestAnimationFrame`,
    `import('./js/app.js')`, then find elements by text and `.click()` them to drive flows. This has
    reliably caught render/logic breaks for the workout flow, challenge run, video dialogs, wake
    lock, hold-timer auto-stop, and backup import/export. (Pattern: a minimal `N` node class with
@@ -420,15 +431,23 @@ The program PDFs share one layout Procedure:
 Native `pdftotext` is available but **Hebrew filenames fail** (encoding). Copy to an ASCII name
 first, then extract with layout + UTF-8:
 ```bash
-cd "C:/Users/Roei/Downloads/Workouts App"
-cp "old workouts/<the hebrew file>.pdf" ./_tmp.pdf      # glob in bash handles the bytes
-pdftotext -layout -enc UTF-8 ./_tmp.pdf ./_tmp.txt
+cp "<the hebrew file>.pdf" "$SCRATCHPAD/_tmp.pdf"       # glob (./*.pdf) in bash handles the bytes
+pdftotext -layout -enc UTF-8 "$SCRATCHPAD/_tmp.pdf" "$SCRATCHPAD/_tmp.txt"
 ```
+(Roei drops the new level PDF in the **project root**; keep temp files in the scratchpad.)
 Then **Read** `_tmp.txt` with the Read tool (don't `cat` — and don't `sed`/`grep` with Hebrew
 literals; bidi control chars (`‫ ‬`, `‪ ‬`) wrap every line and break pattern matches). Clean up
 temp files when done. Rendering pages to images (`pdftoppm`) is NOT available here.
 
 Text is logical-order RTL with bidi marks; read carefully, numbers are LTR.
+
+**`-layout` interleaves the sets/reps/rest tables** — a bonus exercise's `סטים`/`מנוחה` row can
+print *above* its own title, so reading the flat text alone mis-assigns values. Confirm every block
+with a **positioned-text dump** (pypdf `extract_text(visitor_text=…)`, bucket words by `tm[5]` into
+lines, sort each line by `-tm[4]` = RTL order, write UTF-8 to a file, then Read it). Each table then
+reads as one clean line: `סטים | חזרות | מנוחה` followed by its values.
+(Python here prints to a **cp1252** console — always write Hebrew output to a UTF-8 file, never to
+stdout, or it dies with `UnicodeEncodeError`.)
 
 **Video links:** `pdftotext` drops link annotations. Extract them with Python + `pypdf`
 (`pip install pypdf`; installed 2026-08): iterate `page["/Annots"]`, take `/Subtype == /Link` →

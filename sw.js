@@ -2,7 +2,7 @@
 // plus the stretch-reminder push notification.
 // Bump CACHE when shipping changes so old caches are cleared.
 
-const CACHE = 'slworkout-v45';
+const CACHE = 'slworkout-v46';
 
 const SHELL = [
   './',
