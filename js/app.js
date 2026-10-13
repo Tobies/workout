@@ -7,8 +7,7 @@ import { startTimer, startStopwatch, fmtClock } from './timer.js';
 import { el, clear, systemWindow, systemDialog, notify } from './system.js';
 import { ICONS } from './icons.js';
 import { fx, unlock, isSoundOn, isHapticOn, toggleSound, toggleHaptic } from './feedback.js';
-import { STRETCH_ROUTINE, stretchTotalSec, stepLabel } from './stretches.js';
-import * as push from './push.js';
+import { STRETCH_ROUTINE, stretchTotalSec, stepLabel, withStretches } from './stretches.js';
 
 const app = document.getElementById('app');
 let state = store.load();
@@ -258,7 +257,7 @@ function tryImport(raw, importDlg) {
 }
 
 function openSettings() {
-  // A row that opens a dialog instead of cycling a value (backup, reminder).
+  // A row that opens a dialog instead of cycling a value (backup).
   const openRow = (icon, label, desc, onClick) => {
     const row = el('button', { class: 'set-row', 'aria-label': label }, [
       el('div', { class: 'set-top' }, [iconLabel(icon, label)]),
@@ -292,7 +291,6 @@ function openSettings() {
       cycle: () => { state.workoutMode = workoutMode() === 'circuit' ? 'normal' : 'circuit'; store.save(state); },
     }),
     intensityRow(),
-    reminderRow(),
     openRow(ICONS.export, 'ייצוא נתונים', 'העתקת כל הנתונים כטקסט — להעברה לדפדפן או מכשיר אחר.', openExport),
     openRow(ICONS.import, 'ייבוא נתונים', 'שחזור מגיבוי שיוצא בעבר. מחליף את הנתונים הקיימים.', openImport),
   ];
@@ -306,86 +304,29 @@ function openSettings() {
   });
 }
 
-// ---- Stretch reminder (Web Push, opened from Settings) ---------------------
-// js/push.js: the browser subscribes here; the reminder itself is sent by the
-// repo's GitHub Actions cron, so the owner pastes this device's subscription
-// into the PUSH_SUBSCRIPTIONS secret once. Quiet notification, 9:00 daily.
-
-const REMINDER_STATE = { on: 'פעיל', off: 'כבוי', blocked: 'חסום', unsupported: 'לא נתמך' };
-
-function reminderRow() {
-  const stateEl = el('span', { class: 'set-state', text: '…' });
-  const row = el('button', { class: 'set-row', 'aria-label': 'תזכורת מתיחות' }, [
-    el('div', { class: 'set-top' }, [iconLabel(ICONS.bell, 'תזכורת מתיחות'), stateEl]),
-    el('div', { class: 'set-desc', text: 'התראה שקטה כל בוקר ב-9:00 — זמן למתיחות.' }),
-  ]);
-  const refresh = () => push.status().then((s) => {
-    stateEl.textContent = REMINDER_STATE[s] || s;
-    row.classList.toggle('off', s !== 'on');
-  });
-  row.addEventListener('click', () => { fx.tap(); openReminder(refresh); });
-  refresh();
-  return row;
-}
-
-function openReminder(onChange) {
-  const box = el('div', { class: 'rem-box' });
-  const dlg = systemDialog({
-    title: iconLabel(ICONS.bell, 'תזכורת מתיחות', 'title-ico'),
-    bodyNodes: [box],
-    actions: [{ label: 'סגור', kind: 'primary', onClick: () => { fx.tap(); dlg.close(); if (onChange) onChange(); } }],
-  });
-  const hint = (text) => el('div', { class: 'set-hint', text });
-
-  // Re-rendered in place after subscribe/unsubscribe.
-  const render = async () => {
-    const s = await push.status();
-    clear(box);
-    if (s === 'unsupported') {
-      box.appendChild(hint('הדפדפן הזה לא תומך בהתראות. באייפון: הוסף את האפליקציה למסך הבית ופתח אותה משם. באנדרואיד ובמחשב: Chrome או Edge.'));
-    } else if (s === 'blocked') {
-      box.appendChild(hint('ההתראות חסומות לאתר הזה בדפדפן. אפשר אותן בהגדרות האתר ונסה שוב.'));
-    } else if (s === 'off') {
-      box.appendChild(hint('לאפליקציה אין שרת, אז את התזכורת שולח GitHub. ההפעלה יוצרת "מנוי" למכשיר הזה — טקסט שמעתיקים פעם אחת ל-Secret בשם PUSH_SUBSCRIPTIONS במאגר. משם תגיע התראה שקטה כל בוקר ב-9:00.'));
-      box.appendChild(el('div', { class: 'sys-actions' }, [
-        el('button', { class: 'btn btn-primary', text: 'הפעל תזכורת', onClick: async () => {
-          fx.tap();
-          try {
-            await push.subscribe();
-            notify('התזכורת הופעלה במכשיר הזה');
-          } catch (e) {
-            notify(e && e.message === 'denied' ? 'ההרשאה להתראות נדחתה' : 'ההרשמה נכשלה — נסה שוב');
-          }
-          render();
-        } }),
-      ]));
-    } else {
-      const sub = await push.getSubscription();
-      const ta = el('textarea', { class: 'io-text', readonly: true, text: push.subscriptionText(sub) });
-      box.appendChild(hint('המנוי של המכשיר הזה. העתק אותו ל-GitHub: Settings ← Secrets and variables ← Actions ← PUSH_SUBSCRIPTIONS. כמה מכשירים? רשימת JSON: [מנוי, מנוי].'));
-      box.appendChild(ta);
-      box.appendChild(el('div', { class: 'sys-actions' }, [
-        el('button', { class: 'btn btn-primary', 'aria-label': 'העתק מנוי', onClick: () => { fx.tap(); copyFromTextarea(ta); } }, [
-          el('span', { class: 'btn-ico', html: ICONS.copy }),
-          'העתק',
-        ]),
-        el('button', { class: 'btn btn-ghost', text: 'בדיקה', onClick: async () => {
-          fx.tap();
-          try { await push.showTest(); } catch { notify('לא ניתן להציג התראה'); }
-        } }),
-      ]));
-      box.appendChild(el('button', { class: 'link-btn', text: 'בטל תזכורת במכשיר הזה', onClick: async () => {
-        fx.tap();
-        await push.unsubscribe();
-        notify('התזכורת בוטלה במכשיר הזה');
-        render();
-      } }));
-    }
-  };
-  render();
-}
-
 // ---- Home screen -----------------------------------------------------------
+
+// The plan a workout actually runs — the single choke point for ramp-up scaling
+// and the every-other-workout stretch holds (inserted after scaling, so they
+// stay full length). The upcoming plan follows state.nextStretch; the other
+// plan is the workout after it, so it gets the opposite.
+function sessionPlan(id) {
+  const scaled = scaledPlan(PLANS[id], state.rampPercent);
+  const stretch = id === state.nextPlan ? state.nextStretch : !state.nextStretch;
+  return stretch ? withStretches(scaled) : scaled;
+}
+
+// "8 תרגילים · 23 סטים" — program exercises only; stretch holds get stretchNote.
+const planSub = (plan) => `${plan.blocks.filter((b) => !b.stretch).length} תרגילים · ${totalSets(plan)} סטים`;
+
+function stretchNote(plan) {
+  if (!plan.stretch) return null;
+  const holds = plan.blocks.filter((b) => b.stretch).length;
+  return el('div', { class: 'mode-note' }, [
+    el('span', { class: 'inline-ico', html: ICONS.stretch }),
+    `כולל מתיחות אחרי החימום · ${holds} החזקות`,
+  ]);
+}
 
 function renderHome() {
   clear(app);
@@ -395,7 +336,7 @@ function renderHome() {
   const challenge = getChallenge(state.currentChallenge);
   const readiness = challenge ? store.challengeReadiness(state, challenge) : null;
   const rounds = plan.blocks.reduce((m, b) => Math.max(m, b.sets), 0);
-  const scaled = scaledPlan(plan, state.rampPercent); // single choke point for ramp-up scaling
+  const scaled = sessionPlan(state.nextPlan);
   const mode = workoutMode();
 
   // Top bar. RTL: first child sits on the physical RIGHT → workouts chip
@@ -418,7 +359,8 @@ function renderHome() {
   const hero = el('div', { class: 'hero' }, [
     el('div', { class: 'hero-label', text: 'האימון הבא' }),
     el('div', { class: 'hero-name', text: plan.name }),
-    el('div', { class: 'hero-sub', text: `${plan.blocks.length} תרגילים · ${totalSets(plan)} סטים` }),
+    el('div', { class: 'hero-sub', text: planSub(plan) }),
+    stretchNote(scaled),
     mode === 'circuit'
       ? el('div', { class: 'mode-note' }, [el('span', { class: 'inline-ico', html: ICONS.shoe }), `מצב מעגלי · ${rounds} סבבים`])
       : null,
@@ -480,18 +422,19 @@ function renderPreview(plan, mode = 'normal') {
 
   const head = el('div', { class: 'session-head' }, [
     el('div', { class: 'session-plan', text: plan.name }),
-    el('div', { class: 'session-progress', text: `${plan.blocks.length} תרגילים · ${totalSets(plan)} סטים` }),
+    el('div', { class: 'session-progress', text: planSub(plan) }),
   ]);
 
   const blocks = plan.blocks.map((block, bi) => {
     const isSuper = block.kind === 'superset';
     const exs = block.exercises.map((ex) =>
       el('div', { class: 'pv-ex' }, [
-        el('span', { class: 'pv-ex-name' }, [ex.name, ' ', videoLink(ex.name, 'video-link pv-video')]),
+        el('span', { class: 'pv-ex-name' }, [ex.name, ' ', exVideo(ex, 'video-link pv-video')]),
         el('span', { class: 'pv-ex-target', text: targetText(ex.target) }),
       ])
     );
-    const meta = `${block.sets} ${block.sets === 1 ? 'סט' : 'סטים'}${isSuper ? ' · סופרסט' : ''}` +
+    const meta = block.stretch ? 'מתיחה' :
+      `${block.sets} ${block.sets === 1 ? 'סט' : 'סטים'}${isSuper ? ' · סופרסט' : ''}` +
       (block.restSec ? ` · מנוחה ${restText(block.restSec)}` : '');
     return el('div', { class: 'pv-block' }, [
       el('div', { class: 'pv-block-head' }, [
@@ -505,7 +448,7 @@ function renderPreview(plan, mode = 'normal') {
   const banner = mode === 'circuit'
     ? el('div', { class: 'mode-note' }, [el('span', { class: 'inline-ico', html: ICONS.shoe }), 'מצב מעגלי — סבב בין התרגילים'])
     : null;
-  const win = systemWindow('👁 תצוגה מקדימה', [banner, el('div', { class: 'pv-list' }, blocks)]);
+  const win = systemWindow('👁 תצוגה מקדימה', [banner, stretchNote(plan), el('div', { class: 'pv-list' }, blocks)]);
 
   // Peek at the other workout too. Only the upcoming plan can be started from
   // here — the other one is a read-only reference.
@@ -514,7 +457,7 @@ function renderPreview(plan, mode = 'normal') {
   const switchBtn = el('button', {
     class: 'btn btn-ghost btn-wide pv-switch', type: 'button',
     text: `הצג את ${PLANS[otherId].name} ⇄`,
-    onClick: () => { fx.tap(); renderPreview(scaledPlan(PLANS[otherId], state.rampPercent), mode); },
+    onClick: () => { fx.tap(); renderPreview(sessionPlan(otherId), mode); },
   });
   const note = isNext ? null : el('div', { class: 'pv-other-note', text: 'לעיון בלבד — זה לא האימון הבא' });
 
@@ -772,6 +715,12 @@ function videoLink(name, cls = 'video-link') {
   return videoBtn(name, videoFor(name), cls);
 }
 
+// A session exercise's video: its own `video` (stretch holds point into the
+// stretch demo clip), else the VIDEOS map.
+function exVideo(ex, cls = 'video-link') {
+  return videoBtn(ex.name, ex.video || videoFor(ex.name), cls);
+}
+
 function statCell(label, value) {
   return el('div', { class: 'stat-cell' }, [
     el('div', { class: 'stat-value', text: String(value) }),
@@ -856,8 +805,11 @@ function makeRepControl(ex, prefill) {
 // Start → counts up; auto-stops at the prescribed cap — the max of a range,
 // or the exact required time when the target is a single value (L-sit 15s).
 // A range also pings at its min. The held seconds are written into `input`
-// so the set logs the real duration.
-function makeHoldTimer(target, input) {
+// so the set logs the real duration. `onCap` runs after an auto-stop (stretch
+// holds use it to move straight on). Returns { wrap, start, stop } — start()
+// begins the hold without a tap; stop() ends a running hold, keeping the
+// seconds held so far.
+function makeHoldTimer(target, input, onCap = null) {
   // Stop point: range max, or the single required value. A min-only/open-ended
   // hold would have neither and never auto-stops.
   const stopAt = target.max || target.min || null;
@@ -877,15 +829,16 @@ function makeHoldTimer(target, input) {
     input.value = String(elapsed);
   };
 
-  btn.addEventListener('click', () => {
-    if (sw) { fx.tap(); stopHold(); return; }
+  // quiet: started by the app (stretch holds after their prep countdown, which
+  // already rang) rather than by a tap — skip the start sound.
+  const startHold = (quiet = false) => {
     elapsed = 0;
     reachedMin = false;
     display.textContent = "0שנ'";
     wrap.classList.remove('reached');
     wrap.classList.add('running');
     btn.textContent = 'עצור ⏹';
-    fx.start();
+    if (!quiet) fx.start();
     sw = startStopwatch((sec) => {
       elapsed = sec;
       display.textContent = `${sec}שנ'`;
@@ -898,11 +851,24 @@ function makeHoldTimer(target, input) {
         wrap.classList.add('reached');
         fx.complete();
         stopHold();
+        if (onCap) onCap();
       }
     });
+  };
+
+  btn.addEventListener('click', () => {
+    if (sw) { fx.tap(); stopHold(); return; }
+    startHold();
   });
 
-  return wrap;
+  return { wrap, start: () => { if (!sw) startHold(true); }, stop: () => { if (sw) stopHold(); } };
+}
+
+// End any hold timer still running on the current step (done / skip / abort),
+// so it can't keep ticking — or auto-advance — after its card is gone.
+function stopControls(session) {
+  for (const c of session.controls || []) if (c.stop) c.stop();
+  session.controls = null;
 }
 
 // Segmented workout progress bar: one cell per exercise block, width scaled to
@@ -924,7 +890,8 @@ function progressBar(session, completed) {
   return el('div', { class: 'seg-track', 'aria-label': `התקדמות ${completed}/${total} סטים` }, cells);
 }
 
-function renderStep(session) {
+// autoStart: begin a stretch hold right away (after its prep countdown).
+function renderStep(session, { autoStart = false } = {}) {
   clear(app);
   requestWakeLock(); // no-op if held; recovers a lock lost mid-session
   const { block, setNo } = session.steps[session.stepIndex];
@@ -941,7 +908,8 @@ function renderStep(session) {
 
   // Per-exercise logging. Time targets keep the count-up hold timer (it auto-fills
   // the seconds); everything else gets quick min/max buttons + a custom field,
-  // pre-filled with the last reps logged for that exercise.
+  // pre-filled with the last reps logged for that exercise. A stretch hold is the
+  // whole step, so it completes itself when its timer reaches the time.
   const controls = block.exercises.map((ex) => {
     if (ex.target.type === 'routine') {
       // Video-guided routine (warmup) — nothing to log.
@@ -949,10 +917,13 @@ function renderStep(session) {
     }
     if (ex.target.type === 'time') {
       const input = el('input', { type: 'hidden' });
-      return { wrap: makeHoldTimer(ex.target, input), input };
+      const onCap = block.stretch ? () => completeStep(session, block, controls, true) : null;
+      const hold = makeHoldTimer(ex.target, input, onCap);
+      return { wrap: hold.wrap, input, start: hold.start, stop: hold.stop };
     }
     return makeRepControl(ex, lastReps(session, ex.name));
   });
+  session.controls = controls;
 
   const exNodes = block.exercises.map((ex, i) =>
     el('div', { class: 'ex-row' }, [
@@ -960,7 +931,7 @@ function renderStep(session) {
       el('div', { class: 'ex-info' }, [
         el('div', { class: 'ex-name-row' }, [
           el('div', { class: 'ex-name', text: ex.name }),
-          videoLink(ex.name),
+          exVideo(ex),
         ]),
         el('div', { class: 'ex-target', text: targetText(ex.target) }),
         controls[i].wrap,
@@ -968,8 +939,14 @@ function renderStep(session) {
     ])
   );
 
-  const title = isSuper ? `סופרסט · סט ${setNo} מתוך ${block.sets}` : `סט ${setNo} מתוך ${block.sets}`;
-  const win = systemWindow(`⚔ ${title}`, [
+  let title;
+  if (block.stretch) {
+    const holds = session.plan.blocks.filter((b) => b.stretch);
+    title = iconLabel(ICONS.stretch, `מתיחה ${holds.indexOf(block) + 1} מתוך ${holds.length}`, 'title-ico');
+  } else {
+    title = `⚔ ${isSuper ? `סופרסט · סט ${setNo} מתוך ${block.sets}` : `סט ${setNo} מתוך ${block.sets}`}`;
+  }
+  const win = systemWindow(title, [
     isSuper ? el('div', { class: 'super-hint', text: 'ברצף — בלי מנוחה בין התרגילים' }) : null,
     el('div', { class: 'ex-list' }, exNodes),
     el('div', { class: 'sys-actions' }, [
@@ -988,19 +965,29 @@ function renderStep(session) {
     win,
     abort,
   ]));
+
+  if (autoStart && block.stretch) for (const c of controls) if (c.start) c.start();
 }
 
 function completeStep(session, block, controls, done) {
+  stopControls(session); // a hold still running logs the seconds held so far
   block.exercises.forEach((ex, i) => {
     const raw = (controls[i].input.value || '').trim();
     const actual = raw === '' ? null : Math.max(0, parseInt(raw, 10) || 0);
     if (actual != null) session.lastReps[ex.name] = actual; // remember for next set / session
-    session.results.push({ exercise: ex.name, target: targetText(ex.target), targetMax: targetMax(ex.target), actual, done });
+    const result = { exercise: ex.name, target: targetText(ex.target), targetMax: targetMax(ex.target), actual, done };
+    if (block.stretch) result.stretch = true; // not a program set — kept out of set counts
+    session.results.push(result);
   });
 
   const last = session.stepIndex >= session.steps.length - 1;
+  const next = last ? null : session.steps[session.stepIndex + 1];
   if (last) {
     finishWorkout(session);
+  } else if (next.block.prepSec) {
+    // A stretch hold is next (the first one too, right after the warmup) — its
+    // prep countdown replaces any rest.
+    renderRest(session, next.block.prepSec);
   } else if (!block.restSec) {
     // No prescribed rest (e.g. after the warmup routine) — straight to the next step.
     session.stepIndex += 1;
@@ -1038,17 +1025,36 @@ function makeRing(text) {
   };
 }
 
+// Prep countdown before a stretch hold, shared by the workout (renderRest) and
+// the standalone routine (renderStretchPrep): the hold's name big + its video,
+// and a note that the hold will start by itself.
+const prepTitle = () => iconLabel(ICONS.stretch, 'הכנה', 'title-ico');
+function prepNodes(name, video) {
+  return [
+    el('div', { class: 'rest-sub', text: 'היכנס לתנוחה — ההחזקה תתחיל לבד' }),
+    el('div', { class: 'chal-move-row' }, [el('div', { class: 'chal-move', text: `הבא: ${name}` }), video]),
+  ];
+}
+
 function renderRest(session, restSec) {
   clear(app);
   const next = session.steps[session.stepIndex + 1];
-  // "Up next" line with an inline video preview button per exercise.
-  const nextLine = el('div', { class: 'rest-next' }, [
-    'הבא: ',
-    ...next.block.exercises.flatMap((e, i) => [
-      i > 0 ? ' + ' : null,
-      el('span', { class: 'rest-next-ex' }, [e.name, videoLink(e.name, 'video-link pv-video')]),
-    ]),
-  ]);
+  // Before a stretch hold this is its prep countdown instead of a rest; the
+  // hold then starts by itself — no tap needed once you're in position.
+  const prep = !!next.block.prepSec;
+  const info = prep
+    ? prepNodes(next.block.exercises[0].name, exVideo(next.block.exercises[0]))
+    : [
+        el('div', { class: 'rest-sub', text: `מנוחה: ${restText(restSec)}` }),
+        // "Up next" line with an inline video preview button per exercise.
+        el('div', { class: 'rest-next' }, [
+          'הבא: ',
+          ...next.block.exercises.flatMap((e, i) => [
+            i > 0 ? ' + ' : null,
+            el('span', { class: 'rest-next-ex' }, [e.name, exVideo(e, 'video-link pv-video')]),
+          ]),
+        ]),
+      ];
 
   const ring = makeRing(fmtClock(restSec));
 
@@ -1056,15 +1062,14 @@ function renderRest(session, restSec) {
   const proceed = () => {
     if (handle) handle.stop();
     session.stepIndex += 1;
-    renderStep(session);
+    renderStep(session, { autoStart: prep });
   };
 
-  const win = systemWindow('⏳ מנוחה', [
+  const win = systemWindow(prep ? prepTitle() : '⏳ מנוחה', [
     ring.el,
-    el('div', { class: 'rest-sub', text: `מנוחה: ${restText(restSec)}` }),
-    nextLine,
+    ...info,
     el('div', { class: 'sys-actions' }, [
-      el('button', { class: 'btn btn-primary', text: 'דלג ⏭', onClick: () => { fx.tap(); proceed(); } }),
+      el('button', { class: 'btn btn-primary', text: prep ? 'התחל עכשיו ▶' : 'דלג ⏭', onClick: () => { fx.tap(); proceed(); } }),
     ]),
   ], { class: 'sys-dialog' });
 
@@ -1085,7 +1090,7 @@ function renderRest(session, restSec) {
         fx.tick();
       }
     },
-    () => { fx.restEnd(); notify('המנוחה הסתיימה — קדימה!'); proceed(); }
+    () => { fx.restEnd(); notify(prep ? 'מחזיקים!' : 'המנוחה הסתיימה — קדימה!'); proceed(); }
   );
 }
 
@@ -1099,8 +1104,9 @@ function finishWorkout(session) {
   };
   state.history.push(record);
 
-  // Flip to the other plan.
+  // Flip to the other plan, and the stretch holds on/off for the next workout.
   state.nextPlan = session.plan.id === 'A' ? 'B' : 'A';
+  state.nextStretch = !session.plan.stretch;
   store.save(state);
   releaseWakeLock();
 
@@ -1109,11 +1115,13 @@ function finishWorkout(session) {
 
 function showSummary(session, durationSec) {
   fx.finish();
-  const doneCount = session.results.filter((r) => r.done).length;
+  const doneCount = session.results.filter((r) => r.done && !r.stretch).length;
+  const holds = session.results.filter((r) => r.stretch);
   const body = [
     el('div', { class: 'summary-line big', text: `${session.plan.name} הושלם!` }),
     el('div', { class: 'summary-grid' }, [
       statCell('סטים', doneCount),
+      holds.length ? statCell('מתיחות', `${holds.filter((r) => r.done).length}/${holds.length}`) : null,
       statCell('זמן', store.fmtDuration(durationSec)),
     ]),
     el('div', { class: 'summary-q', text: 'היה מאתגר מספיק?' }),
@@ -1145,16 +1153,19 @@ function confirmAbort(session) {
     dismissible: true,
     actions: [
       { label: 'המשך אימון', kind: 'ghost', onClick: () => dlg.close() },
-      { label: 'בטל', kind: 'primary', onClick: () => { dlg.close(); renderHome(); } },
+      { label: 'בטל', kind: 'primary', onClick: () => { stopControls(session); dlg.close(); renderHome(); } },
     ],
   });
 }
 
 // ---- Stretching routine ----------------------------------------------------
-// Guided run of STRETCH_ROUTINE (js/stretches.js): each hold is started by a
-// tap (time to get into position), counted down on the ring, then auto-advances.
-// Completed runs go to state.stretchLog — real data (date, duration, holds),
-// but NOT workouts: streaks, the weekly goal and readiness ignore them.
+// Standalone guided run of STRETCH_ROUTINE (js/stretches.js), from home: a
+// `prepSec` countdown before every hold (read which one is next, get into
+// position), then the hold counts down on the ring by itself — hands-free from
+// "התחל". (Every other workout also runs the same holds as exercises after the
+// warmup — see sessionPlan.) Completed runs go to
+// state.stretchLog — real data (date, duration, holds), but NOT workouts:
+// streaks, the weekly goal and readiness ignore them.
 
 function stretchTitle() {
   return iconLabel(ICONS.stretch, STRETCH_ROUTINE.name, 'title-ico');
@@ -1181,7 +1192,7 @@ function renderStretchPre() {
     ])
   );
   const win = systemWindow(stretchTitle(), [
-    el('div', { class: 'chal-sub', text: `${r.steps.length} החזקות · ${r.holdSec} שניות כל אחת · כ-${Math.ceil(stretchTotalSec(r) / 60)} דקות` }),
+    el('div', { class: 'chal-sub', text: `${r.steps.length} החזקות · ${r.holdSec} שניות כל אחת · כ-${Math.ceil((stretchTotalSec(r) + r.steps.length * r.prepSec) / 60)} דקות` }),
     el('div', { class: 'st-list' }, rows),
     el('button', {
       class: 'btn btn-ghost btn-wide btn-vid', type: 'button', 'aria-label': 'סרטון מלא',
@@ -1190,7 +1201,7 @@ function renderStretchPre() {
     el('div', { class: 'sys-actions' }, [
       el('button', { class: 'btn btn-primary', text: 'התחל ▶', onClick: () => {
         unlock(); fx.start();
-        renderStretchStep(r, 0, { startedAt: Date.now(), done: 0 });
+        renderStretchPrep(r, 0, { startedAt: Date.now(), done: 0 });
       } }),
       el('button', { class: 'btn btn-ghost', text: 'חזרה', onClick: () => { fx.tap(); renderHome(); } }),
     ]),
@@ -1198,6 +1209,47 @@ function renderStretchPre() {
   app.appendChild(el('div', { class: 'view view-stretch' }, [win]));
 }
 
+function stretchHead(routine, idx) {
+  return el('div', { class: 'session-head' }, [
+    el('div', { class: 'session-plan', text: routine.name }),
+    el('div', { class: 'session-progress', text: `${idx + 1} / ${routine.steps.length}` }),
+  ]);
+}
+
+// Prep countdown before hold `idx` — the same screen as in the workout. The
+// hold then starts by itself; "התחל עכשיו" skips the wait.
+function renderStretchPrep(routine, idx, run) {
+  clear(app);
+  requestWakeLock(); // no-op if held; recovers a lock lost mid-run
+  const step = routine.steps[idx];
+  const sec = routine.prepSec;
+  let handle = null;
+
+  const go = () => {
+    if (handle) { handle.stop(); handle = null; }
+    renderStretchStep(routine, idx, run);
+  };
+
+  const ring = makeRing(fmtClock(sec));
+  const win = systemWindow(prepTitle(), [
+    ring.el,
+    ...prepNodes(stepLabel(step), videoBtn(stepLabel(step), step.video)),
+    el('div', { class: 'sys-actions' }, [
+      el('button', { class: 'btn btn-primary', text: 'התחל עכשיו ▶', onClick: () => { fx.tap(); go(); } }),
+    ]),
+  ], { class: 'sys-dialog' });
+  const exit = el('button', { class: 'link-btn', text: 'יציאה', onClick: () => { if (handle) handle.stop(); fx.tap(); renderHome(); } });
+  app.appendChild(el('div', { class: 'view view-stretch' }, [stretchHead(routine, idx), stepsBar(routine.steps.length, idx), win, exit]));
+
+  handle = startTimer(
+    sec,
+    (rem) => { ring.set(rem, sec); if (rem > 0 && rem <= 3) { ring.urgent(); fx.tick(); } },
+    () => { handle = null; fx.restEnd(); notify('מחזיקים!'); go(); }
+  );
+}
+
+// The hold itself: counts down as soon as it shows (its prep came first), then
+// on to the next prep. Skipping ahead doesn't count it as held.
 function renderStretchStep(routine, idx, run) {
   clear(app);
   requestWakeLock(); // no-op if held; recovers a lock lost mid-run
@@ -1205,33 +1257,13 @@ function renderStretchStep(routine, idx, run) {
   const total = routine.steps.length;
   let handle = null;
 
-  const head = el('div', { class: 'session-head' }, [
-    el('div', { class: 'session-plan', text: routine.name }),
-    el('div', { class: 'session-progress', text: `${idx + 1} / ${total}` }),
-  ]);
-
   const advance = () => {
     if (handle) { handle.stop(); handle = null; }
-    if (idx + 1 < total) renderStretchStep(routine, idx + 1, run);
+    if (idx + 1 < total) renderStretchPrep(routine, idx + 1, run);
     else finishStretch(routine, run);
   };
 
   const ring = makeRing(fmtClock(step.sec));
-  // One button: idle → start the hold; running → skip ahead (not counted as held).
-  const goBtn = el('button', { class: 'btn btn-primary', text: 'התחל ▶' });
-  goBtn.addEventListener('click', () => {
-    if (handle) { fx.tap(); advance(); return; }
-    fx.start();
-    goBtn.textContent = 'דלג ⏭';
-    goBtn.classList.remove('btn-primary');
-    goBtn.classList.add('btn-ghost');
-    handle = startTimer(
-      step.sec,
-      (rem) => { ring.set(rem, step.sec); if (rem > 0 && rem <= 3) { ring.urgent(); fx.tick(); } },
-      () => { handle = null; run.done += 1; fx.restEnd(); advance(); }
-    );
-  });
-
   const win = systemWindow(stretchTitle(), [
     el('div', { class: 'chal-move-row' }, [
       el('div', { class: 'chal-move', text: step.name }),
@@ -1240,10 +1272,18 @@ function renderStretchStep(routine, idx, run) {
     step.side ? el('div', { class: 'st-side', text: `רגל ${step.side}` }) : null,
     el('div', { class: 'chal-req', text: `החזק ${step.sec} שניות` }),
     ring.el,
-    el('div', { class: 'sys-actions' }, [goBtn]),
+    el('div', { class: 'sys-actions' }, [
+      el('button', { class: 'btn btn-ghost', text: 'דלג ⏭', onClick: () => { fx.tap(); advance(); } }),
+    ]),
   ], { class: 'sys-dialog' });
   const exit = el('button', { class: 'link-btn', text: 'יציאה', onClick: () => { if (handle) handle.stop(); fx.tap(); renderHome(); } });
-  app.appendChild(el('div', { class: 'view view-stretch' }, [head, stepsBar(total, idx), win, exit]));
+  app.appendChild(el('div', { class: 'view view-stretch' }, [stretchHead(routine, idx), stepsBar(total, idx), win, exit]));
+
+  handle = startTimer(
+    step.sec,
+    (rem) => { ring.set(rem, step.sec); if (rem > 0 && rem <= 3) { ring.urgent(); fx.tick(); } },
+    () => { handle = null; run.done += 1; fx.complete(); advance(); }
+  );
 }
 
 function finishStretch(routine, run) {
@@ -1272,29 +1312,10 @@ function finishStretch(routine, run) {
 
 applyTheme(loadTheme());
 
-// Deep links from the reminder notification: ./?open=stretch (the routine) and
-// ./?open=reminder (re-copy the subscription from Settings). The query is
-// stripped right away so a reload / PWA restart lands on home as usual.
-function boot() {
-  let open = null;
-  try {
-    open = new URLSearchParams(location.search).get('open');
-    if (open && history.replaceState) history.replaceState(null, '', location.pathname);
-  } catch { /* ignore */ }
-  if (open === 'stretch') { renderStretchPre(); return; }
-  renderHome();
-  if (open === 'reminder') openSettings();
-}
-boot();
+renderHome();
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
-  });
-  // Notification tapped while a window is already open: sw.js focuses it and
-  // asks for the routine — honoured only from home, never mid-session.
-  navigator.serviceWorker.addEventListener('message', (e) => {
-    const d = e && e.data;
-    if (d && d.type === 'open' && d.view === 'stretch' && app.querySelector('.view-home')) renderStretchPre();
   });
 }

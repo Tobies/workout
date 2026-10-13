@@ -282,8 +282,6 @@ button.set-row:active { transform: scale(0.99); }
 .title-ico .set-ico svg { width: 20px; height: 20px; }
 .inline-ico { display: inline-flex; vertical-align: -3px; margin-inline-end: 6px; }
 .inline-ico svg { width: 16px; height: 16px; display: block; }
-/* Reminder dialog body (re-rendered in place) */
-.rem-box { display: flex; flex-direction: column; gap: 14px; }
 
 /* ---- Buttons ---- */
 

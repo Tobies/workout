@@ -1,10 +1,9 @@
-// Dev tool (not shipped, not in the SW shell): rasterizes ICONS.stretch from
-// js/icons.js into the PNGs the reminder notification needs — Chrome/Android
-// won't decode SVG for notification icons/badges — using nothing but Node
-// (zlib). No image tooling is available in the owner's environment.
+// Dev tool (not shipped, not in the SW shell): rasterizes every icon in
+// js/icons.js into one contact sheet so new icons can be checked by eye —
+// using nothing but Node (zlib). No image tooling is available in the owner's
+// environment, and there is no browser here.
 //
-//   node tools/gen-icons.mjs            → assets/icons/notify-192.png, badge-96.png
-//   node tools/gen-icons.mjs --preview  → also tools/icons-preview.png (every icon, for a look)
+//   node tools/gen-icons.mjs --preview  → tools/icons-preview.png (the flag is optional)
 //
 // Supports the path commands the icons use (M/m L/l H/h V/v C/c Z/z); curves
 // are flattened, strokes are distance-to-segment with round caps, 3×3 supersampling.
@@ -147,24 +146,9 @@ function drawIcon(img, svg, { x: ox, y: oy, size, rgb, stroke = 1.8 }) {
   }
 }
 
-const PAPER = [250, 247, 240], INK = [33, 30, 26], WHITE = [255, 255, 255];
-const out = (f) => path.join(ROOT, 'assets', 'icons', f);
+const PAPER = [250, 247, 240], INK = [33, 30, 26];
 
-// Notification icon: paper square + ink stretch figure (bold stroke reads at 48dp).
 {
-  const img = image(192, 192, [...PAPER, 255]);
-  drawIcon(img, ICONS.stretch, { x: 22, y: 22, size: 148, rgb: INK, stroke: 2.1 });
-  writeFileSync(out('notify-192.png'), png(img));
-}
-// Status-bar badge: white silhouette on transparent (Android uses the alpha only).
-{
-  const img = image(96, 96);
-  drawIcon(img, ICONS.stretch, { x: 6, y: 6, size: 84, rgb: WHITE, stroke: 2.6 });
-  writeFileSync(out('badge-96.png'), png(img));
-}
-console.log('wrote assets/icons/notify-192.png + badge-96.png');
-
-if (process.argv.includes('--preview')) {
   const keys = Object.keys(ICONS);
   const cell = 104, cols = 5, rows = Math.ceil(keys.length / cols);
   const img = image(cols * cell, rows * cell, [...PAPER, 255]);

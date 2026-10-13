@@ -76,14 +76,14 @@ export function scaleTarget(t, pct) {
   }
 }
 
-// A copy of a plan with every WORK-block target scaled. The warmup (block 0) is
-// left untouched. pct >= 100 (or falsy) → the original plan, no scaling.
+// A copy of a plan with every WORK-block target scaled. The warmup (block 0) and
+// stretch holds are left untouched. pct >= 100 (or falsy) → the original plan.
 export function scaledPlan(plan, pct) {
   if (!pct || pct >= 100) return plan;
   return {
     ...plan,
     blocks: plan.blocks.map((b, i) =>
-      i === 0
+      i === 0 || b.stretch
         ? b
         : { ...b, exercises: b.exercises.map((ex) => ({ ...ex, target: scaleTarget(ex.target, pct) })) }
     ),
@@ -225,7 +225,8 @@ export const PLAN_B = {
 
 export const PLANS = { A: PLAN_A, B: PLAN_B };
 
-// Total number of sets in a plan (for progress display).
+// Total number of sets in a plan (for progress display). Stretch holds are not
+// program sets and are left out.
 export function totalSets(plan) {
-  return plan.blocks.reduce((n, b) => n + b.sets, 0);
+  return plan.blocks.reduce((n, b) => n + (b.stretch ? 0 : b.sets), 0);
 }

@@ -18,14 +18,15 @@ export const nextRampDisplay = (d) => RAMP_DISPLAYS[(RAMP_DISPLAYS.indexOf(d) + 
 
 const DEFAULT_STATE = () => ({
   nextPlan: 'A',
-  history: [], // { dateISO, plan, durationSec, sets:[{ exercise, target, targetMax|null, actual|null, done }] }
+  nextStretch: true, // next workout includes the stretch holds after the warmup; flips like nextPlan
+  history: [], // { dateISO, plan, durationSec, sets:[{ exercise, target, targetMax|null, actual|null, done, stretch? }] }
   currentChallenge: '3.5',
   challengesPassed: [],
   challengeNotified: false,
   rampPercent: 75,      // intensity %, [50,100]; 100 = full plan, <100 scales reps/holds down
   rampDisplay: 'full',  // LEGACY (old home intensity widget) — unused, kept so old saves load
   workoutMode: 'normal', // 'normal' (block by block) | 'circuit' (one set of each per round); Settings
-  stretchLog: [],       // completed stretching runs: { dateISO, durationSec, holds, total } — not workouts
+  stretchLog: [],       // standalone stretching runs: { dateISO, durationSec, holds, total } — not workouts
 });
 
 export function load() {
@@ -51,6 +52,7 @@ export function load() {
     levelUp('3.0', '3.5'); // level-3.5 migration (2026-09)
     if (st.workoutMode !== 'circuit') st.workoutMode = 'normal';
     if (!Array.isArray(st.stretchLog)) st.stretchLog = [];
+    st.nextStretch = st.nextStretch !== false;
     return st;
   } catch {
     return DEFAULT_STATE();
@@ -118,7 +120,7 @@ export function stats(state) {
   const h = state.history;
   const totalWorkouts = h.length;
   const totalTimeSec = h.reduce((n, w) => n + (w.durationSec || 0), 0);
-  const totalSets = h.reduce((n, w) => n + w.sets.filter((s) => s.done).length, 0);
+  const totalSets = h.reduce((n, w) => n + w.sets.filter((s) => s.done && !s.stretch).length, 0);
   const { current, longest } = streaks(h);
   return {
     totalWorkouts,
@@ -131,15 +133,24 @@ export function stats(state) {
   };
 }
 
-// Stretching runs are logged separately from workouts (they don't feed streaks,
-// the weekly goal or challenge readiness). Same "real data only" rule.
+// Stretching = standalone runs (stretchLog) + workouts whose stretch holds were
+// done (time = the held seconds, prescribed length when not timed). Stretching
+// never feeds streaks, the weekly goal or challenge readiness.
 export function stretchStats(state) {
-  const log = state.stretchLog || [];
+  const inWorkout = [];
+  for (const w of state.history) {
+    const held = (w.sets || []).filter((s) => s.stretch && s.done);
+    if (!held.length) continue;
+    const durationSec = held.reduce((n, s) => n + (s.actual != null ? s.actual : (s.targetMax || 0)), 0);
+    inWorkout.push({ dateISO: w.dateISO, durationSec });
+  }
+  const log = [...(state.stretchLog || []), ...inWorkout];
+  const last = log.reduce((m, s) => (!m || s.dateISO > m ? s.dateISO : m), null);
   return {
     total: log.length,
     totalTimeSec: log.reduce((n, s) => n + (s.durationSec || 0), 0),
     weekCount: thisWeekCount(log),
-    last: log.length ? log[log.length - 1].dateISO : null,
+    last,
   };
 }
 
